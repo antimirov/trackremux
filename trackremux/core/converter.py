@@ -9,9 +9,31 @@ class MediaConverter:
     def build_ffmpeg_command(media_file: MediaFile, output_path: str) -> list:
         """
         Builds the ffmpeg command to keep only enabled tracks and set languages.
+        Handles both internal (same file) and external (separate file) tracks.
         """
-        cmd = ["ffmpeg", "-y", "-i", media_file.path]  # -y to overwrite
+        # 1. Identify all unique source files
+        # The main file is always index 0
+        input_files = [media_file.path]
+        
+        # Helper to get input index for a path
+        def get_input_index(path):
+            if path is None or path == media_file.path:
+                return 0
+            if path not in input_files:
+                input_files.append(path)
+            return input_files.index(path)
 
+        # 2. Build inputs part of the command
+        cmd = ["ffmpeg", "-fflags", "+genpts", "-y"]
+        # Pre-scan tracks to add all necessary inputs
+        for track in media_file.tracks:
+            if track.enabled and track.source_path:
+                get_input_index(track.source_path)
+
+        for ip in input_files:
+            cmd.extend(["-i", ip])
+
+        # 3. Map tracks
         # Metadata indices in the output file
         audio_idx = 0
         subtitle_idx = 0
@@ -21,8 +43,11 @@ class MediaConverter:
             if not track.enabled:
                 continue
 
-            # Map by absolute index
-            cmd.extend(["-map", f"0:{track.index}"])
+            # Determine input index and stream index
+            input_idx = get_input_index(track.source_path)
+            
+            # Construct map: input_idx:stream_idx
+            cmd.extend(["-map", f"{input_idx}:{track.index}"])
 
             # Set metadata for output stream
             if track.codec_type == "video":

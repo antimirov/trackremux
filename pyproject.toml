@@ -1,6 +1,6 @@
 [project]
 name = "trackremux"
-version = "0.3.1"
+version = "0.4.0"
 description = "A powerful TUI tool to interactively select and remux audio/subtitle tracks from video files"
 authors = [
     {name = "Yevgen Antymyrov", email = "me@antimirov.net"}
@@ -13,6 +13,7 @@ license-files = ["LICENSE"]
 [project.urls]
 homepage = "https://github.com/antimirov/trackremux"
 issues = "https://github.com/antimirov/trackremux/issues"
+changelog = "https://github.com/antimirov/trackremux/blob/main/CHANGELOG.md"
 
 [project.scripts]
 trackremux = "trackremux.__main__:main"

@@ -28,8 +28,9 @@ class ProgressView:
         self.end_time = None
 
         # Build command and estimate size
-        self.output_name = "converted_" + self.media_file.filename
-        self.temp_output = f"temp_{self.media_file.filename}"
+        base_name = os.path.splitext(self.media_file.filename)[0]
+        self.output_name = f"converted_{base_name}.mkv"
+        self.temp_output = f"temp_{base_name}.mkv"
         self.ffmpeg_cmd = MediaConverter.build_ffmpeg_command(self.media_file, self.temp_output)
         self.estimated_size_mb = MediaConverter.estimate_output_size(self.media_file) / 1024 / 1024
         self.actual_size_mb = 0.0

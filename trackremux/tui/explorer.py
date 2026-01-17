@@ -7,6 +7,7 @@ import unicodedata
 from ..core.probe import MediaProbe
 from .constants import (
     FILE_LIST_Y_OFFSET,
+    KEY_ESC,
     KEY_A_LOWER,
     KEY_A_UPPER,
     KEY_ENTER,
@@ -34,10 +35,11 @@ def get_display_name(name, width):
 
 
 class FileExplorer:
-    def __init__(self, app, path):
+    def __init__(self, app, path, back_view=None):
         self.app = app
         self.path = os.path.abspath(path)
-        self.filenames = self._get_video_files()
+        self.back_view = back_view
+        self.filenames = self._get_items()
 
         # Metadata storage: {filename: media_file_object}
         self.metadata = {}
@@ -56,17 +58,27 @@ class FileExplorer:
         self.prober_thread.daemon = True
         self.prober_thread.start()
 
-    def _get_video_files(self):
+    def _get_items(self):
         extensions = (".mkv", ".mp4", ".avi", ".mov", ".m4v")
         try:
-            files = [
-                f
-                for f in os.listdir(self.path)
-                if f.lower().endswith(extensions)
-                and not f.startswith("converted_")
-                and not f.startswith("temp_")
-            ]
-            return sorted(files)
+            items = []
+            for f in os.listdir(self.path):
+                full = os.path.join(self.path, f)
+                if os.path.isdir(full) and not f.startswith("."):
+                    items.append(f)
+                elif f.lower().endswith(extensions):
+                     if not f.startswith("converted_") and not f.startswith("temp_"):
+                         items.append(f)
+            
+            # Sort: Directories first, then files
+            dims, files = [], []
+            for i in items:
+                if os.path.isdir(os.path.join(self.path, i)):
+                    dims.append(i)
+                else:
+                    files.append(i)
+            
+            return sorted(dims) + sorted(files)
         except Exception:
             return []
 
@@ -104,19 +116,27 @@ class FileExplorer:
             time.sleep(0.01)
 
     def _get_sorted_files(self):
+        # Directories always on top if default sort, otherwise mixed?
+        # Actually simplest is to just filter directories separate if we want special sort on files
+        # But for now let's just sort files part if metadata needed
+        
+        # Split dirs and files
+        dirs = [f for f in self.filenames if os.path.isdir(os.path.join(self.path, f))]
+        files = [f for f in self.filenames if not os.path.isdir(os.path.join(self.path, f))]
+        
         with self.metadata_lock:
             rev = self.sort_reverse
             if self.sort_mode == "name":
-                return sorted(self.filenames, reverse=rev)
+                files = sorted(files, reverse=rev)
             elif self.sort_mode == "size":
-                return sorted(
-                    self.filenames,
+                files = sorted(
+                    files,
                     key=lambda f: self.metadata.get(f).size_bytes if f in self.metadata else 0,
                     reverse=rev,
                 )
             elif self.sort_mode == "tracks":
-                return sorted(
-                    self.filenames,
+                files = sorted(
+                    files,
                     key=lambda f: (
                         len([t for t in self.metadata.get(f).tracks if t.codec_type == "audio"])
                         if f in self.metadata and hasattr(self.metadata[f], "tracks")
@@ -125,8 +145,8 @@ class FileExplorer:
                     reverse=rev,
                 )
             elif self.sort_mode == "audio_size":
-                return sorted(
-                    self.filenames,
+                files = sorted(
+                    files,
                     key=lambda f: (
                         sum(
                             (t.bit_rate * getattr(self.metadata[f], "duration", 0)) / 8
@@ -138,7 +158,7 @@ class FileExplorer:
                     ),
                     reverse=rev,
                 )
-        return self.filenames
+        return sorted(dirs) + files
 
     def draw(self):
         self.app.stdscr.erase()
@@ -150,20 +170,18 @@ class FileExplorer:
         self.app.stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
         self.app.stdscr.addstr(0, 0, " " * width)  # Clear the line
 
-        # [Q] QUIT at the left
-        self.app.stdscr.addstr(0, 1, "[Q] QUIT", curses.color_pair(5))
 
         # [X] at the right
         if width > 10:
             self.app.stdscr.addstr(0, width - 4, "[X]", curses.color_pair(5))
 
-        label = " Media Browser: "
+        label = "Media Browser: "
         path_str = f"{self.path} "
         full_header_len = len(label) + len(path_str)
 
         if full_header_len < width - 20:
-            # Shift left bit (formerly centered) to allow more room for progress
-            start_x = 12
+            # Title at the left
+            start_x = 0
             self.app.stdscr.addstr(0, start_x, label, curses.color_pair(1) | curses.A_BOLD)
             self.app.stdscr.addstr(0, start_x + len(label), path_str, curses.A_DIM)
             header_end = start_x + full_header_len
@@ -235,6 +253,19 @@ class FileExplorer:
                 attr = curses.color_pair(5)
 
             with self.metadata_lock:
+                # Directory handling
+                full_item_path = os.path.join(self.path, filename)
+                if os.path.isdir(full_item_path):
+                    display_filename = get_display_name(filename + "/", name_col_width)
+                    # " [ DIR             ] " is 19 chars to match track info width
+                    # track info is 19: "[xx aud: xxxxx.x ]"
+                    dir_tag = " [ DIR             ]"
+                    line = f"{dir_tag} {display_filename}"
+                    self.app.stdscr.addstr(
+                        i + FILE_LIST_Y_OFFSET, 0, line[: width - 1].ljust(width - 1), attr | curses.A_BOLD
+                    )
+                    continue
+
                 media = self.metadata.get(filename)
 
             if media and getattr(media, "probed", False):
@@ -305,7 +336,8 @@ class FileExplorer:
         mouse_status = "APP" if self.app.mouse_enabled else "TERM"
         sort_footer = " Sort: [N]ame, [S]ize, [T]racks, [A]ud Size "
         mouse_footer = f" [M] Mouse Select: {mouse_status} "
-        action_footer = " [ENTER] Open, [Q] Quit "
+        mouse_footer = f" [M] Mouse Select: {mouse_status} "
+        action_footer = " [ENTER] Open, [Q/ESC] Quit "
         full_footer = f"{sort_footer} | {mouse_footer} | {action_footer}"
         self.app.stdscr.addstr(
             height - 1, 0, full_footer.center(width)[: width - 1], curses.color_pair(3)
@@ -318,11 +350,15 @@ class FileExplorer:
         sorted_files = self._get_sorted_files()
         list_height = height - 5
 
-        if key in (KEY_Q_LOWER, KEY_Q_UPPER):
-            if self.app.mouse_enabled:
-                self.app.toggle_mouse()
-            self.stopped = True
-            self.app.switch_view(None)
+        if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC):
+            if self.back_view:
+                 self.app.switch_view(self.back_view)
+                 self.stopped = True
+            else:
+                if self.app.mouse_enabled:
+                    self.app.toggle_mouse()
+                self.stopped = True
+                self.app.switch_view(None)
         elif key in (KEY_M_LOWER, KEY_M_UPPER):
             self.app.toggle_mouse()
         elif key in (KEY_N_LOWER, KEY_N_UPPER):
@@ -371,11 +407,10 @@ class FileExplorer:
                 if bstate & curses.BUTTON_SHIFT:
                     return  # Ignore if shift is held to allow terminal selection
 
-                # Header [Q] QUIT button or [X] button
-                is_quit = my == 0 and 1 <= mx <= 8
+                # Header [X] button
                 is_x = my == 0 and mx >= width - 4
 
-                if is_quit or is_x:
+                if is_x:
                     if self.app.mouse_enabled:
                         self.app.toggle_mouse()
                     self.stopped = True
@@ -403,11 +438,20 @@ class FileExplorer:
                             self.selected_idx = target_idx
             except:
                 pass
-        elif key in (KEY_ENTER, curses.KEY_RIGHT):  # Enter or Right Arrow
+        elif key == KEY_ENTER:  # Enter
             if sorted_files:
                 filename = sorted_files[self.selected_idx]
                 file_path = os.path.join(self.path, filename)
-                media = self.metadata.get(file_path)
-                from .editor import TrackEditor
-
-                self.app.switch_view(TrackEditor(self.app, media or file_path, back_view=self))
+                if os.path.isdir(file_path):
+                     # Enter directory
+                     self.app.switch_view(FileExplorer(self.app, file_path, back_view=self))
+                     self.stopped = True # Stop probing current dir to save resources? Or keep it?
+                     # Better to keep it running if we come back?
+                     # Actually, standard practice: new view -> pause old?
+                     # For simplicity, we just stack views. 
+                     # But we should stop the prober of THIS view if we are going deeper to avoid churn?
+                     # Nah, let it finish.
+                else: 
+                     media = self.metadata.get(file_path)
+                     from .editor import TrackEditor
+                     self.app.switch_view(TrackEditor(self.app, media or file_path, back_view=self))

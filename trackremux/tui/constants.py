@@ -14,6 +14,8 @@ KEY_T_LOWER = ord("t")
 KEY_T_UPPER = ord("T")
 KEY_A_LOWER = ord("a")
 KEY_A_UPPER = ord("A")
+KEY_L_LOWER = ord("l")
+KEY_L_UPPER = ord("L")
 
 # UI Layout
 MARGIN = 3

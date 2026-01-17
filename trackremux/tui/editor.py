@@ -3,6 +3,7 @@ import os
 
 from ..core.converter import MediaConverter
 from ..core.preview import MediaPreview
+from ..core.languages import LANGUAGE_MAP
 from ..core.probe import MediaProbe
 from .constants import (
     KEY_ENTER,
@@ -13,7 +14,10 @@ from .constants import (
     KEY_Q_UPPER,
     KEY_S_LOWER,
     KEY_S_UPPER,
+    KEY_L_LOWER,
+    KEY_L_UPPER,
     KEY_SPACE,
+    APP_TIMEOUT_MS,
     PREVIEW_DURATION_SECONDS,
     SEEK_STEP_SECONDS,
     TRACK_EDITOR_INFO_HEIGHT,
@@ -39,11 +43,148 @@ class TrackEditor:
         self.current_preview_time = 0.0
 
         # Track if we are viewing an already converted state
-        self.output_name = "converted_" + self.media_file.filename
+        base_name = os.path.splitext(self.media_file.filename)[0]
+        self.output_name = f"converted_{base_name}.mkv"
+        self._scan_external_tracks()
         self._recognize_existing_output()
 
         # Store initial state for change detection
-        self.initial_enabled = [t.enabled for t in self.media_file.tracks]
+        # We store tuples of (index, enabled) to detect both enabling changes AND reordering
+        self.initial_state = [(t.index, t.enabled) for t in self.media_file.tracks]
+
+    def _guess_language(self, path):
+        """Attempts to guess language from filename parts or directory names."""
+        # Normalize path separators
+        path = path.lower().replace("\\", "/")
+        
+        # Split into components (dirs + filename)
+        # We process the whole path from the scan root down
+        parts = path.replace("-", ".").replace("_", ".").split(".")
+        
+        # Also split by slash to get directory names as separate tokens
+        # e.g. "Subs/Ukr/file.srt" -> "Subs", "Ukr", "file", "srt"
+        path_tokens = []
+        for p in path.split("/"):
+             path_tokens.extend(p.replace("-", ".").replace("_", ".").split("."))
+        
+        # Merge parts and path_tokens
+        all_tokens = set(parts + path_tokens)
+
+        # Merge parts and path_tokens
+        all_tokens = set(parts + path_tokens)
+
+        # Prioritize tokens that perform exact matches
+        for token in all_tokens:
+            if token in LANGUAGE_MAP:
+                return LANGUAGE_MAP[token]
+        return None
+
+    def _get_short_source_name(self, external_path):
+        """
+        Returns a shortened display name for the external file.
+        Removes common prefix with main file and truncates if necessary.
+        """
+        if not external_path:
+            return ""
+            
+        fname = os.path.basename(external_path)
+        main_base = os.path.splitext(self.media_file.filename)[0]
+        
+        # Check if external file starts with main file's name (case-insensitive)
+        if fname.lower().startswith(main_base.lower()):
+            # Strip the prefix
+            shortened = fname[len(main_base):]
+            # If it starts with a separator, strip that too
+            if shortened and shortened[0] in (".", "_", "-"):
+                shortened = shortened[1:]
+            
+            # If we stripped it down to just extension or empty, keep original or ensure visibility
+            if not shortened or shortened.startswith("."):
+                 # This might happen if file is "Movie.mkv" and ext is "Movie.srt" -> "srt"
+                 # Better to show the extension clearly? 
+                 pass
+            
+            display = shortened
+        else:
+            display = fname
+            
+        # Truncate if still too long
+        max_len = 30
+        if len(display) > max_len:
+            display = display[:max_len-3] + "..."
+            
+        return display
+
+    def _scan_external_tracks(self):
+        """Scans the directory RECURSIVELY for sibling audio and subtitle files and adds them."""
+        # Common external extensions
+        audio_exts = (".ac3", ".mka", ".dts", ".eac3", ".wav", ".flac", ".mp3", ".aac")
+        sub_exts = (".srt", ".ass", ".sub", ".txt", ".vtt")
+        
+        directory = os.path.dirname(self.file_path)
+        base_name = os.path.splitext(self.media_file.filename)[0]
+
+        try:
+            # Walk top-down
+            # Limit depth? Walk is depth-first but we can limit logic.
+            # Actually standard os.walk visits everything.
+            # We probably only want 1 or 2 levels deep to avoid scanning entire volumes if user opened root.
+            # Let's assume user opens a movie folder which contains the structure.
+            # Safety: limit complexity by counting.
+            
+            scanned_files = []
+            
+            # Use os.walk with depth limit logic manually
+            root_depth = directory.rstrip(os.sep).count(os.sep)
+            
+            for root, dirs, files in os.walk(directory):
+                # Calculate current depth
+                current_depth = root.rstrip(os.sep).count(os.sep)
+                if current_depth - root_depth > 2: # Limit to 2 levels deep
+                    dirs[:] = [] # Stop descending
+                    continue
+                    
+                for f in files:
+                    full = os.path.join(root, f)
+                    if full == self.file_path:
+                        continue
+                    if f.startswith("converted_") or f.startswith("temp_"):
+                        continue
+                    
+                    scanned_files.append(full)
+
+            # Sort files to ensure stable order
+            for full in sorted(scanned_files):
+                f = os.path.basename(full)
+                is_audio = f.lower().endswith(audio_exts)
+                is_sub = f.lower().endswith(sub_exts)
+
+                if is_audio or is_sub:
+                     try:
+                         # Probe it
+                         ext_media = MediaProbe.probe(full)
+                         
+                         # Determine language from RELATIVE path (to include folder names)
+                         rel_path = os.path.relpath(full, directory)
+                         guessed_lang = self._guess_language(rel_path)
+                         
+                         # Add its tracks
+                         for t in ext_media.tracks:
+                             # Only add relevant tracks (audio from aduio files, subs from sub files)
+                             if (is_audio and t.codec_type == "audio") or (is_sub and t.codec_type == "subtitle"):
+                                 t.source_path = full
+                                 t.enabled = False # Default to disabled for external tracks
+                                 
+                                 # Apply guessed language if track doesn't have one or if we want to override?
+                                 # Usually external files don't have metadata lang, so filename is king.
+                                 if guessed_lang:
+                                     t.language = guessed_lang
+                                     
+                                 self.media_file.tracks.append(t)
+                     except:
+                         pass
+        except:
+             pass
 
     def _recognize_existing_output(self):
         if not os.path.exists(self.output_name):
@@ -86,12 +227,12 @@ class TrackEditor:
             self.status_message = f" Error probing existing output: {e} "
 
     def _has_changes(self):
-        current = [t.enabled for t in self.media_file.tracks]
-        return current != self.initial_enabled
+        current = [(t.index, t.enabled) for t in self.media_file.tracks]
+        return current != self.initial_state
 
     def commit_changes(self):
         """Syncs the initial state with the current state and clears confirmation flags."""
-        self.initial_enabled = [t.enabled for t in self.media_file.tracks]
+        self.initial_state = [(t.index, t.enabled) for t in self.media_file.tracks]
         self.confirming_exit = False
 
     def draw(self):
@@ -102,8 +243,6 @@ class TrackEditor:
         self.app.stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
         self.app.stdscr.addstr(0, 0, " " * width)  # Clear the line
 
-        # [Q] BACK at the left
-        self.app.stdscr.addstr(0, 1, "[Q] BACK", curses.color_pair(5))
 
         # [X] at the right
         if width > 10:
@@ -121,7 +260,8 @@ class TrackEditor:
         self.app.stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
 
         # File Info & Output Info
-        output_name = "converted_" + self.media_file.filename
+        base_name = os.path.splitext(self.media_file.filename)[0]
+        output_name = f"converted_{base_name}.mkv"
         existing_exists = os.path.exists(output_name)
 
         est_size_mb = MediaConverter.estimate_output_size(self.media_file) / 1024 / 1024
@@ -171,7 +311,16 @@ class TrackEditor:
                 size_mb = (track.bit_rate * self.media_file.duration) / 8 / 1024 / 1024
                 track_size_str = f"[{format_size(size_mb, precision=1)}]"
 
-            line = f"{prefix}{check} Stream #{track.index}: {track.codec_type.upper():<10} {track_size_str:>11} | {track.display_info}"
+            source_tag = ""
+            if track.source_path:
+                 short_name = self._get_short_source_name(track.source_path)
+                 source_tag = f" [EXT: {short_name}]"
+            
+            # Truncate source tag if too long?
+            # Max width logic?
+            # For now, let it be.
+
+            line = f"{prefix}{check} Stream #{track.index}: {track.codec_type.upper():<10} {track_size_str:>11}{source_tag} | {track.display_info}"
 
             if idx == self.selected_idx:
                 attr = curses.color_pair(5)
@@ -184,7 +333,7 @@ class TrackEditor:
 
         # Footer
         mouse_status = "APP SELECT" if self.app.mouse_enabled else "TERM SELECT"
-        footer = f" [SPACE] Toggle | [ENTER] Play | [L/R] Seek | [S] Start | [M] Mouse: {mouse_status} | [ESC] Back "
+        footer = f" [SPACE] Toggle | [ENTER] Play | [L] Lang | [Shift+↑/↓] Reorder | [←/→] Seek | [S] Start | [M] Mouse: {mouse_status} | [Q/ESC] Back "
         self.app.stdscr.addstr(
             height - 1, 0, footer.center(width)[: width - 1], curses.color_pair(3)
         )
@@ -224,8 +373,17 @@ class TrackEditor:
                 self.app.switch_view(self.back_view)
             elif key in (ord("n"), ord("N")):
                 # Restore initial state and go back
-                for i, enabled in enumerate(self.initial_enabled):
-                    self.media_file.tracks[i].enabled = enabled
+                # Reconstruct track list based on initial state
+                restored_tracks = []
+                # Map current tracks by index for easy lookup
+                track_map = {t.index: t for t in self.media_file.tracks}
+                
+                for idx, enabled in self.initial_state:
+                    t = track_map[idx]
+                    t.enabled = enabled
+                    restored_tracks.append(t)
+                
+                self.media_file.tracks = restored_tracks
                 self.confirming_exit = False
                 self.app.switch_view(self.back_view)
             elif key in (ord("c"), ord("C"), KEY_ESC):
@@ -256,15 +414,22 @@ class TrackEditor:
                             self.app.switch_view(self.back_view)
                         elif 35 <= rel_x <= 45:  # [N] Discard
                             self.status_message = " Discarding changes... "
-                            for i, enabled in enumerate(self.initial_enabled):
-                                self.media_file.tracks[i].enabled = enabled
+                            # Restore logic duplicated from key handler
+                            restored_tracks = []
+                            track_map = {t.index: t for t in self.media_file.tracks}
+                            for idx, enabled in self.initial_state:
+                                t = track_map[idx]
+                                t.enabled = enabled
+                                restored_tracks.append(t)
+                            self.media_file.tracks = restored_tracks
+                            
                             self.confirming_exit = False
                             self.app.switch_view(self.back_view)
                 except Exception:
                     pass
             return
 
-        if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC, curses.KEY_LEFT):
+        if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC):
             if self._has_changes():
                 self.confirming_exit = True
             else:
@@ -283,8 +448,8 @@ class TrackEditor:
             try:
                 _, mx, my, _, _ = curses.getmouse()
 
-                # Header [Q] BACK button or [X] button
-                is_back = my == 0 and 1 <= mx <= 8
+                # Header [X] button
+                is_back = False # Removed
                 is_x = my == 0 and mx >= width - 4
 
                 if is_back or is_x:
@@ -355,6 +520,59 @@ class TrackEditor:
             from .progress import ProgressView
 
             self.app.switch_view(ProgressView(self.app, self.media_file, self))
+        elif key in (KEY_L_LOWER, KEY_L_UPPER):
+            self._edit_language()
+        elif key == curses.KEY_SR:  # Shift+Up - Move Up
+            if self.selected_idx > 0:
+                tracks = self.media_file.tracks
+                tracks[self.selected_idx], tracks[self.selected_idx - 1] = (
+                    tracks[self.selected_idx - 1],
+                    tracks[self.selected_idx],
+                )
+                self.selected_idx -= 1
+        elif key == curses.KEY_SF:  # Shift+Down - Move Down
+            tracks = self.media_file.tracks
+            if self.selected_idx < len(tracks) - 1:
+                tracks[self.selected_idx], tracks[self.selected_idx + 1] = (
+                    tracks[self.selected_idx + 1],
+                    tracks[self.selected_idx],
+                )
+                self.selected_idx += 1
+
+    def _edit_language(self):
+        """Opens a simple prompt to edit the language of the selected track."""
+        track = self.media_file.tracks[self.selected_idx]
+        if track.codec_type == "video":
+            self.status_message = " Cannot edit language for video tracks. "
+            return
+
+        height, width = self.app.stdscr.getmaxyx()
+        
+        # Simple input loop
+        curses.echo()
+        curses.curs_set(1)
+        self.app.stdscr.timeout(-1)  # Blocking input
+        curses.flushinp()            # Clear buffer of any previous keys
+        
+        prompt = " Enter 3-letter language code (e.g. eng, ukr): "
+        self.app.stdscr.addstr(height - 2, 0, prompt.ljust(width), curses.color_pair(3) | curses.A_BOLD)
+        self.app.stdscr.refresh()
+        
+        try:
+            # Get string at cursor
+            user_input = self.app.stdscr.getstr(height - 2, len(prompt), 3).decode("utf-8")
+        except:
+            user_input = ""
+            
+        curses.noecho()
+        curses.curs_set(0)
+        self.app.stdscr.timeout(APP_TIMEOUT_MS) # Restore application timeout
+        
+        if user_input and len(user_input.strip()) == 3:
+            track.language = user_input.strip().lower()
+            self.status_message = f" Language set to '{track.language}' for track #{track.index} "
+        else:
+            self.status_message = " Invalid language code or cancelled. "
 
     def _play_current_track(self):
         height, width = self.app.stdscr.getmaxyx()
@@ -373,11 +591,28 @@ class TrackEditor:
         for t in self.media_file.tracks:
             if t == track:
                 break
-            if t.codec_type == track.codec_type:
+            if t == track:
+                break
+            # We must only count 'sibling' tracks of same type WITHIN THE SAME SOURCE FILE
+            # IF using relative index. ffmpeg -map 0:a:0 etc.
+            # BUT wait, MediaPreview uses ffplay or ffmpeg -ss ...
+            # Implementation of extract_snippet:
+            # cmd = ["ffmpeg", "-ss", ..., "-i", source_path, "-map", f"0:{codec_type}:{track_index}"]
+            # So we need the index relative to that file's specific codec stream list? or absolute?
+            # MediaProbe returns absolute index "index".
+            # Let's check MediaPreview.
+            # If we pass absolute stream index "0:2", we don't need type_idx logic?
+            # Current MediaPreview implementation takes "track_index" which is 0-based index of THAT TYPE.
+            
+            # So if track.source_path is set, we need its index relative to THAT file.
+            # track.index from MediaProbe is absolute index in that file.
+            # check MediaPreview usage...
+            
+            if t.source_path == track.source_path and t.codec_type == track.codec_type:
                 type_idx += 1
 
         wav_path = MediaPreview.extract_snippet(
-            self.file_path, "audio", type_idx, start_time=self.current_preview_time
+            track.source_path or self.file_path, "audio", type_idx, start_time=self.current_preview_time
         )
         if wav_path:
             MediaPreview.play_snippet(wav_path)

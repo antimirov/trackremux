@@ -6,6 +6,9 @@
 
 ![Media Browser](docs/screenshots/02_media_browser.png)
 
+> [!TIP]
+> Check out the [CHANGELOG](CHANGELOG.md) to see what's new in the latest version!
+
 ## 🚀 Purpose
 
 Modern media often comes with a bloat of unnecessary tracks—commentary audio, multiple languages you don't speak, or dozens of subtitle formats. **TrackRemux** simplifies the process of removing this clutter.
@@ -23,8 +26,11 @@ Instead of wrestling with complex `ffmpeg` command-line arguments for every sing
 -   **Rich Meta-data Explorer**:
     -   Displays file sizes, track counts, and audio languages at a glance.
     -   **Visual Status Indicators**: Instantly spot files that have already been converted (Green size) or are currently processing (Dim Yellow).
+    -   **Folder Navigation**: Browse nested directory structures (`Enter` to open, `Esc` to go back).
 -   **Deep Track Inspection**:
-    -   View detailed info for every stream (Codec, Language, Bitrate, Channels).
+    -   **Track Reordering**: Move tracks up/down with `Shift+Arrow` keys to set their index in the final file.
+    -   **External Tracks**: Automatically detects and integrates external audio/subtitle files (even in `Audio/` or `Subs/` subfolders).
+    -   **Language Management**: Guesses 30+ languages from filenames (e.g. `dut.srt`) or supports manual setting via the `[L]` key.
     -   **Smart Matching**: Automatically detects existing conversions and restores your previous track selections.
 -   **Preview Capabilities**: Listen to audio tracks directly from the TUI (macOS `afplay` integration) to confirm contents before keeping them.
 -   **Safe Conversion**:
@@ -42,15 +48,19 @@ Scan any folder to instantly see track counts and sizes.
 Pick exactly what you need. Audio previews help distinguish between different dubs or commentaries.
 ![Selecting Tracks](docs/screenshots/03_selecting_tracks.png)
 
-### 3. Fast, Lossless Conversion
+### 3. External Tracks & Language Editing
+TrackRemux finds external subtitle/audio files automatically. You can also manually correct missing language tags.
+![External Tracks](docs/screenshots/07_external_tracks.png)
+
+### 4. Fast, Lossless Conversion
 Watch the progress in real-time as ffmpeg remuxes your file at disk-IO speeds.
 ![Converting](docs/screenshots/04_converting.png)
 
-### 4. Successful Completion
+### 5. Successful Completion
 Final sizes and success messages are displayed directly in the TUI upon completion.
 ![Result](docs/screenshots/05_result.png)
 
-### 5. Efficient Storage
+### 6. Efficient Storage
 Remuxing is lossless and fast. You can see the significant size savings in your directory listing without any quality loss.
 ![Result Difference](docs/screenshots/06_list_files.png)
 
@@ -129,17 +139,22 @@ trackremux "My Movie.mkv"
 | :--- | :--- |
 | **Space** | Toggle Track (Keep/Discard) |
 | **Enter** | Preview Track (Audio only) |
-| **L/R Arrows**| Seek in preview |
+| **← / →** | Seek in preview |
 | **↑ / ↓** | Navigate Tracks |
+| **Shift+↑ / ↓** | Move selected track UP / DOWN |
+| **L** | **Set Language** (Manual edit) |
 | **S** | **Start Conversion** / Save changes |
-| **Esc** / **Q** | Back to Explorer |
+| **Esc / Q** | Back to Explorer |
 
 ## 🗺️ Roadmap
-- [ ] **Batch Processing**: Select multiple files to queue for sequential remuxing.
-- [ ] **Track Reordering**: Allow changing the order of audio and subtitle tracks in the final file.
-- [ ] **Modern TUI**: Consider migrating to `Textual` for better UI/UX and cross-terminal compatibility.
-- [ ] **Custom Rules**: Auto-selection of tracks based on preferred languages.
+*(Complexity: 🟢 Low, 🟡 Medium, 🔴 High)*
+*(Priority: 🔥 High, ⚡ Medium, 🧊 Low)*
+
+- [ ] 🟠 ⚡ **Batch Processing**: Select multiple files to queue for sequential remuxing.
+- [ ] 🔴 🧊 **Modern TUI**: Consider migrating to `Textual` for better UI/UX and cross-terminal compatibility.
+- [ ] 🟡 🔥 **Custom Rules**: Auto-selection of tracks based on preferred languages.
+- [ ] 🔴 🧊 **Multi-Language Streams**: Support for `mul` / dual-audio tracks (complex mapping).
 
 ## 📝 License
 
-MIT License. See `LICENSE` for more details.
+MIT License. See [LICENSE](LICENSE) for more details.

@@ -21,6 +21,7 @@ class Track:
     bit_rate: Optional[int] = None  # In bits/s
     nb_frames: Optional[int] = None  # For video
     is_attached_pic: bool = False  # True for cover art/attached pictures
+    source_path: Optional[str] = None  # Path to external file logic (or None for main file)
 
     @property
     def display_info(self) -> str:
