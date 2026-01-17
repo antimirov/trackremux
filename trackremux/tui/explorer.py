@@ -7,10 +7,10 @@ import unicodedata
 from ..core.probe import MediaProbe
 from .constants import (
     FILE_LIST_Y_OFFSET,
-    KEY_ESC,
     KEY_A_LOWER,
     KEY_A_UPPER,
     KEY_ENTER,
+    KEY_ESC,
     KEY_M_LOWER,
     KEY_M_UPPER,
     KEY_N_LOWER,
@@ -67,9 +67,9 @@ class FileExplorer:
                 if os.path.isdir(full) and not f.startswith("."):
                     items.append(f)
                 elif f.lower().endswith(extensions):
-                     if not f.startswith("converted_") and not f.startswith("temp_"):
-                         items.append(f)
-            
+                    if not f.startswith("converted_") and not f.startswith("temp_"):
+                        items.append(f)
+
             # Sort: Directories first, then files
             dims, files = [], []
             for i in items:
@@ -77,7 +77,7 @@ class FileExplorer:
                     dims.append(i)
                 else:
                     files.append(i)
-            
+
             return sorted(dims) + sorted(files)
         except Exception:
             return []
@@ -119,11 +119,11 @@ class FileExplorer:
         # Directories always on top if default sort, otherwise mixed?
         # Actually simplest is to just filter directories separate if we want special sort on files
         # But for now let's just sort files part if metadata needed
-        
+
         # Split dirs and files
         dirs = [f for f in self.filenames if os.path.isdir(os.path.join(self.path, f))]
         files = [f for f in self.filenames if not os.path.isdir(os.path.join(self.path, f))]
-        
+
         with self.metadata_lock:
             rev = self.sort_reverse
             if self.sort_mode == "name":
@@ -169,7 +169,6 @@ class FileExplorer:
         # Header
         self.app.stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
         self.app.stdscr.addstr(0, 0, " " * width)  # Clear the line
-
 
         # [X] at the right
         if width > 10:
@@ -262,7 +261,10 @@ class FileExplorer:
                     dir_tag = " [ DIR             ]"
                     line = f"{dir_tag} {display_filename}"
                     self.app.stdscr.addstr(
-                        i + FILE_LIST_Y_OFFSET, 0, line[: width - 1].ljust(width - 1), attr | curses.A_BOLD
+                        i + FILE_LIST_Y_OFFSET,
+                        0,
+                        line[: width - 1].ljust(width - 1),
+                        attr | curses.A_BOLD,
                     )
                     continue
 
@@ -352,8 +354,8 @@ class FileExplorer:
 
         if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC):
             if self.back_view:
-                 self.app.switch_view(self.back_view)
-                 self.stopped = True
+                self.app.switch_view(self.back_view)
+                self.stopped = True
             else:
                 if self.app.mouse_enabled:
                     self.app.toggle_mouse()
@@ -443,15 +445,12 @@ class FileExplorer:
                 filename = sorted_files[self.selected_idx]
                 file_path = os.path.join(self.path, filename)
                 if os.path.isdir(file_path):
-                     # Enter directory
-                     self.app.switch_view(FileExplorer(self.app, file_path, back_view=self))
-                     self.stopped = True # Stop probing current dir to save resources? Or keep it?
-                     # Better to keep it running if we come back?
-                     # Actually, standard practice: new view -> pause old?
-                     # For simplicity, we just stack views. 
-                     # But we should stop the prober of THIS view if we are going deeper to avoid churn?
-                     # Nah, let it finish.
-                else: 
-                     media = self.metadata.get(file_path)
-                     from .editor import TrackEditor
-                     self.app.switch_view(TrackEditor(self.app, media or file_path, back_view=self))
+                    # Enter directory
+                    self.app.switch_view(FileExplorer(self.app, file_path, back_view=self))
+                    self.stopped = True
+                    # TODO: decide if we should pause probing of current dir
+                else:
+                    media = self.metadata.get(file_path)
+                    from .editor import TrackEditor
+
+                    self.app.switch_view(TrackEditor(self.app, media or file_path, back_view=self))

@@ -11,10 +11,19 @@ __pycache__*
 converted_videos*
 
 # media files
-*.m4v
-*.mkv
-*.mp4
-*.avi
+**/*.avi
+**/*.mkv
+**/*.mp4
+**/*.m4v
+**/*.mp3
+**/*.aac
+**/*.ac3
+**/*.flac
+**/*.wav
+**/*.srt
+**/*.ass
+**/*.sub
+**/*.vtt
 
 # System files
 .DS_Store

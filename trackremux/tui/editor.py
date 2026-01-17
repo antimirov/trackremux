@@ -2,22 +2,22 @@ import curses
 import os
 
 from ..core.converter import MediaConverter
-from ..core.preview import MediaPreview
 from ..core.languages import LANGUAGE_MAP
+from ..core.preview import MediaPreview
 from ..core.probe import MediaProbe
 from .constants import (
+    APP_TIMEOUT_MS,
     KEY_ENTER,
     KEY_ESC,
+    KEY_L_LOWER,
+    KEY_L_UPPER,
     KEY_M_LOWER,
     KEY_M_UPPER,
     KEY_Q_LOWER,
     KEY_Q_UPPER,
     KEY_S_LOWER,
     KEY_S_UPPER,
-    KEY_L_LOWER,
-    KEY_L_UPPER,
     KEY_SPACE,
-    APP_TIMEOUT_MS,
     PREVIEW_DURATION_SECONDS,
     SEEK_STEP_SECONDS,
     TRACK_EDITOR_INFO_HEIGHT,
@@ -56,17 +56,17 @@ class TrackEditor:
         """Attempts to guess language from filename parts or directory names."""
         # Normalize path separators
         path = path.lower().replace("\\", "/")
-        
+
         # Split into components (dirs + filename)
         # We process the whole path from the scan root down
         parts = path.replace("-", ".").replace("_", ".").split(".")
-        
+
         # Also split by slash to get directory names as separate tokens
         # e.g. "Subs/Ukr/file.srt" -> "Subs", "Ukr", "file", "srt"
         path_tokens = []
         for p in path.split("/"):
-             path_tokens.extend(p.replace("-", ".").replace("_", ".").split("."))
-        
+            path_tokens.extend(p.replace("-", ".").replace("_", ".").split("."))
+
         # Merge parts and path_tokens
         all_tokens = set(parts + path_tokens)
 
@@ -86,33 +86,33 @@ class TrackEditor:
         """
         if not external_path:
             return ""
-            
+
         fname = os.path.basename(external_path)
         main_base = os.path.splitext(self.media_file.filename)[0]
-        
+
         # Check if external file starts with main file's name (case-insensitive)
         if fname.lower().startswith(main_base.lower()):
             # Strip the prefix
-            shortened = fname[len(main_base):]
+            shortened = fname[len(main_base) :]
             # If it starts with a separator, strip that too
             if shortened and shortened[0] in (".", "_", "-"):
                 shortened = shortened[1:]
-            
+
             # If we stripped it down to just extension or empty, keep original or ensure visibility
             if not shortened or shortened.startswith("."):
-                 # This might happen if file is "Movie.mkv" and ext is "Movie.srt" -> "srt"
-                 # Better to show the extension clearly? 
-                 pass
-            
+                # This might happen if file is "Movie.mkv" and ext is "Movie.srt" -> "srt"
+                # Better to show the extension clearly?
+                pass
+
             display = shortened
         else:
             display = fname
-            
+
         # Truncate if still too long
         max_len = 30
         if len(display) > max_len:
-            display = display[:max_len-3] + "..."
-            
+            display = display[: max_len - 3] + "..."
+
         return display
 
     def _scan_external_tracks(self):
@@ -120,7 +120,7 @@ class TrackEditor:
         # Common external extensions
         audio_exts = (".ac3", ".mka", ".dts", ".eac3", ".wav", ".flac", ".mp3", ".aac")
         sub_exts = (".srt", ".ass", ".sub", ".txt", ".vtt")
-        
+
         directory = os.path.dirname(self.file_path)
         base_name = os.path.splitext(self.media_file.filename)[0]
 
@@ -131,26 +131,26 @@ class TrackEditor:
             # We probably only want 1 or 2 levels deep to avoid scanning entire volumes if user opened root.
             # Let's assume user opens a movie folder which contains the structure.
             # Safety: limit complexity by counting.
-            
+
             scanned_files = []
-            
+
             # Use os.walk with depth limit logic manually
             root_depth = directory.rstrip(os.sep).count(os.sep)
-            
+
             for root, dirs, files in os.walk(directory):
                 # Calculate current depth
                 current_depth = root.rstrip(os.sep).count(os.sep)
-                if current_depth - root_depth > 2: # Limit to 2 levels deep
-                    dirs[:] = [] # Stop descending
+                if current_depth - root_depth > 2:  # Limit to 2 levels deep
+                    dirs[:] = []  # Stop descending
                     continue
-                    
+
                 for f in files:
                     full = os.path.join(root, f)
                     if full == self.file_path:
                         continue
                     if f.startswith("converted_") or f.startswith("temp_"):
                         continue
-                    
+
                     scanned_files.append(full)
 
             # Sort files to ensure stable order
@@ -160,31 +160,33 @@ class TrackEditor:
                 is_sub = f.lower().endswith(sub_exts)
 
                 if is_audio or is_sub:
-                     try:
-                         # Probe it
-                         ext_media = MediaProbe.probe(full)
-                         
-                         # Determine language from RELATIVE path (to include folder names)
-                         rel_path = os.path.relpath(full, directory)
-                         guessed_lang = self._guess_language(rel_path)
-                         
-                         # Add its tracks
-                         for t in ext_media.tracks:
-                             # Only add relevant tracks (audio from aduio files, subs from sub files)
-                             if (is_audio and t.codec_type == "audio") or (is_sub and t.codec_type == "subtitle"):
-                                 t.source_path = full
-                                 t.enabled = False # Default to disabled for external tracks
-                                 
-                                 # Apply guessed language if track doesn't have one or if we want to override?
-                                 # Usually external files don't have metadata lang, so filename is king.
-                                 if guessed_lang:
-                                     t.language = guessed_lang
-                                     
-                                 self.media_file.tracks.append(t)
-                     except:
-                         pass
+                    try:
+                        # Probe it
+                        ext_media = MediaProbe.probe(full)
+
+                        # Determine language from RELATIVE path (to include folder names)
+                        rel_path = os.path.relpath(full, directory)
+                        guessed_lang = self._guess_language(rel_path)
+
+                        # Add its tracks
+                        for t in ext_media.tracks:
+                            # Only add relevant tracks (audio from aduio files, subs from sub files)
+                            if (is_audio and t.codec_type == "audio") or (
+                                is_sub and t.codec_type == "subtitle"
+                            ):
+                                t.source_path = full
+                                t.enabled = False  # Default to disabled for external tracks
+
+                                # Apply guessed language if track doesn't have one or if we want to override?
+                                # Usually external files don't have metadata lang, so filename is king.
+                                if guessed_lang:
+                                    t.language = guessed_lang
+
+                                self.media_file.tracks.append(t)
+                    except:
+                        pass
         except:
-             pass
+            pass
 
     def _recognize_existing_output(self):
         if not os.path.exists(self.output_name):
@@ -242,7 +244,6 @@ class TrackEditor:
         # Header
         self.app.stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
         self.app.stdscr.addstr(0, 0, " " * width)  # Clear the line
-
 
         # [X] at the right
         if width > 10:
@@ -313,9 +314,9 @@ class TrackEditor:
 
             source_tag = ""
             if track.source_path:
-                 short_name = self._get_short_source_name(track.source_path)
-                 source_tag = f" [EXT: {short_name}]"
-            
+                short_name = self._get_short_source_name(track.source_path)
+                source_tag = f" [EXT: {short_name}]"
+
             # Truncate source tag if too long?
             # Max width logic?
             # For now, let it be.
@@ -377,12 +378,12 @@ class TrackEditor:
                 restored_tracks = []
                 # Map current tracks by index for easy lookup
                 track_map = {t.index: t for t in self.media_file.tracks}
-                
+
                 for idx, enabled in self.initial_state:
                     t = track_map[idx]
                     t.enabled = enabled
                     restored_tracks.append(t)
-                
+
                 self.media_file.tracks = restored_tracks
                 self.confirming_exit = False
                 self.app.switch_view(self.back_view)
@@ -422,7 +423,7 @@ class TrackEditor:
                                 t.enabled = enabled
                                 restored_tracks.append(t)
                             self.media_file.tracks = restored_tracks
-                            
+
                             self.confirming_exit = False
                             self.app.switch_view(self.back_view)
                 except Exception:
@@ -449,7 +450,7 @@ class TrackEditor:
                 _, mx, my, _, _ = curses.getmouse()
 
                 # Header [X] button
-                is_back = False # Removed
+                is_back = False  # Removed
                 is_x = my == 0 and mx >= width - 4
 
                 if is_back or is_x:
@@ -547,27 +548,29 @@ class TrackEditor:
             return
 
         height, width = self.app.stdscr.getmaxyx()
-        
+
         # Simple input loop
         curses.echo()
         curses.curs_set(1)
         self.app.stdscr.timeout(-1)  # Blocking input
-        curses.flushinp()            # Clear buffer of any previous keys
-        
+        curses.flushinp()  # Clear buffer of any previous keys
+
         prompt = " Enter 3-letter language code (e.g. eng, ukr): "
-        self.app.stdscr.addstr(height - 2, 0, prompt.ljust(width), curses.color_pair(3) | curses.A_BOLD)
+        self.app.stdscr.addstr(
+            height - 2, 0, prompt.ljust(width), curses.color_pair(3) | curses.A_BOLD
+        )
         self.app.stdscr.refresh()
-        
+
         try:
             # Get string at cursor
             user_input = self.app.stdscr.getstr(height - 2, len(prompt), 3).decode("utf-8")
         except:
             user_input = ""
-            
+
         curses.noecho()
         curses.curs_set(0)
-        self.app.stdscr.timeout(APP_TIMEOUT_MS) # Restore application timeout
-        
+        self.app.stdscr.timeout(APP_TIMEOUT_MS)  # Restore application timeout
+
         if user_input and len(user_input.strip()) == 3:
             track.language = user_input.strip().lower()
             self.status_message = f" Language set to '{track.language}' for track #{track.index} "
@@ -603,16 +606,19 @@ class TrackEditor:
             # Let's check MediaPreview.
             # If we pass absolute stream index "0:2", we don't need type_idx logic?
             # Current MediaPreview implementation takes "track_index" which is 0-based index of THAT TYPE.
-            
+
             # So if track.source_path is set, we need its index relative to THAT file.
             # track.index from MediaProbe is absolute index in that file.
             # check MediaPreview usage...
-            
+
             if t.source_path == track.source_path and t.codec_type == track.codec_type:
                 type_idx += 1
 
         wav_path = MediaPreview.extract_snippet(
-            track.source_path or self.file_path, "audio", type_idx, start_time=self.current_preview_time
+            track.source_path or self.file_path,
+            "audio",
+            type_idx,
+            start_time=self.current_preview_time,
         )
         if wav_path:
             MediaPreview.play_snippet(wav_path)

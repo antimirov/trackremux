@@ -14,7 +14,7 @@ class MediaConverter:
         # 1. Identify all unique source files
         # The main file is always index 0
         input_files = [media_file.path]
-        
+
         # Helper to get input index for a path
         def get_input_index(path):
             if path is None or path == media_file.path:
@@ -45,7 +45,7 @@ class MediaConverter:
 
             # Determine input index and stream index
             input_idx = get_input_index(track.source_path)
-            
+
             # Construct map: input_idx:stream_idx
             cmd.extend(["-map", f"{input_idx}:{track.index}"])
 

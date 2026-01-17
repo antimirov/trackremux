@@ -29,7 +29,6 @@ LANGUAGES = {
     "swe": ["sv", "swedish", "swe"],
     "tur": ["tr", "turkish", "tur"],
     "ukr": ["uk", "ukrainian", "ukr"],
-
     # Asian
     "ara": ["ar", "arabic", "ara"],
     "chi": ["zh", "chinese", "zho", "chi"],
@@ -41,15 +40,12 @@ LANGUAGES = {
     "may": ["ms", "malay", "msa", "may"],
     "tha": ["th", "thai", "tha"],
     "vie": ["vi", "vietnamese", "vie"],
-
     # African
     "afr": ["af", "afrikaans", "afr"],
     "amh": ["am", "amharic", "amh"],
     "swa": ["sw", "swahili", "swa"],
     "zul": ["zu", "zulu", "zul"],
-
     # Other
-    # "mul": ["mul", "multiple", "multi"], # Moved to Roadmap
     "und": ["und", "undefined", "unknown"],
 }
 
@@ -60,6 +56,7 @@ for code, aliases in LANGUAGES.items():
     for alias in aliases:
         LANGUAGE_MAP[alias] = code
 
+
 def guess_language_from_filename(filename: str) -> str | None:
     """
     Attempts to guess language from filename parts (e.g. 'movie.eng.mkv' -> 'eng').
@@ -67,10 +64,10 @@ def guess_language_from_filename(filename: str) -> str | None:
     # Normalize
     normalized = filename.lower().replace("-", ".").replace("_", ".")
     parts = normalized.split(".")
-    
+
     # Check each part
     for part in parts:
         if part in LANGUAGE_MAP:
             return LANGUAGE_MAP[part]
-            
+
     return None
