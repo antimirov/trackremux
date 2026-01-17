@@ -1,0 +1,19 @@
+# Python stuff
+.venv*
+venv*
+*.pyc
+__pycache__*
+.mypy_cache
+
+# local data
+*.log
+converted_videos*
+
+# media files
+*.m4v
+*.mkv
+*.mp4
+*.avi
+
+# System files
+.DS_Store
