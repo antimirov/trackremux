@@ -1,32 +1,15 @@
-import argparse
-import os
+#!/usr/bin/env python3
+"""
+TrackRemux - Root Wrapper
+This script allows running TrackRemux directly from the source directory.
+"""
 import sys
+import os
 
-from trackremux.tui.app import start_tui
+# Add the current directory to sys.path so we can find the trackremux package
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-
-def main():
-    parser = argparse.ArgumentParser(description="TrackRemux TUI")
-    parser.add_argument("path", nargs="?", default=".", help="Path to a file or directory")
-    parser.add_argument("--gui", action="store_true", help="Launch GUI (Future)")
-    args = parser.parse_args()
-
-    if args.gui:
-        print("GUI mode is not implemented yet. Use the default TUI mode.")
-        return
-
-    path = os.path.abspath(args.path)
-
-    if os.path.isdir(path):
-        # Start TUI in explorer mode
-        start_tui(path)
-    elif os.path.isfile(path):
-        # Start TUI in editor mode for a single file
-        start_tui(path, single_file=True)
-    else:
-        print(f"Error: Path '{path}' not found.")
-        sys.exit(1)
-
+from trackremux.__main__ import main
 
 if __name__ == "__main__":
     main()

@@ -32,7 +32,7 @@ Instead of wrestling with complex `ffmpeg` command-line arguments for every sing
     -   Non-destructive: Creates new files (`converted_filename`) by default.
     -   Real-time progress bar and size estimation.
 
-## � Visual Walkthrough
+## 📸 Visual Walkthrough
 
 ### 1. Launch & Directory Scan
 Scan any folder to instantly see track counts and sizes.
@@ -54,43 +54,60 @@ Final sizes and success messages are displayed directly in the TUI upon completi
 Remuxing is lossless and fast. You can see the significant size savings in your directory listing without any quality loss.
 ![Result Difference](docs/screenshots/06_list_files.png)
 
-## �🛠️ Prerequisites
+## 🛠️ Prerequisites
 
 -   **Python 3.10+**
 -   **FFmpeg** must be installed and accessible in your system PATH.
     -   macOS: `brew install ffmpeg`
 
-## 📦 Installation
+## 📦 Installation & Setup
 
-1.  **System Requirements**:
-    -   Ensure `ffmpeg` is installed:
-        -   macOS: `brew install ffmpeg`
-        -   Linux: `sudo apt install ffmpeg`
-    -   Python 3.10+ (TrackRemux uses only the standard library for the app itself).
+### Option 1: Install as a Global Tool (Recommended)
+The easiest way to use TrackRemux is to install it globally using `uv`:
+```bash
+uv tool install trackremux
+```
+Once installed, you can simply run `trackremux` from any directory.
 
-2.  **Dev Setup (Optional)**:
-    If you want to contribute, we use `uv` for dependency management:
+### Option 2: Running from Source
+If you prefer to run it directly from the repository:
+
+1.  **Clone the repository**:
     ```bash
-    uv sync
+    git clone https://github.com/antimirov/trackremux.git
+    cd trackremux
     ```
 
-3.  Run it directly:
+2.  **Run using the wrapper**:
     ```bash
-    python3 trackremux.py /path/to/directory
+    python3 trackremux.py /path/to/media
+    ```
+
+3.  **Run as a module**:
+    ```bash
+    python3 -m trackremux /path/to/media
+    ```
+
+4.  **Using `uv` (for development)**:
+    ```bash
+    uv sync
+    uv run trackremux /path/to/media
     ```
 
 ## 🖥️ Usage
 
-Run the tool by pointing it to a directory or a single video file.
+You can point TrackRemux to a directory (Explorer Mode) or a specific video file (Editor Mode).
 
 ### Explorer Mode (Directory)
+Browse and process your entire library:
 ```bash
-python3 trackremux.py /path/to/your/movies
+trackremux /path/to/your/movies
 ```
 
 ### Single File Mode
+Jump straight into the track editor for a specific file:
 ```bash
-python3 trackremux.py "My Movie.mkv"
+trackremux "My Movie.mkv"
 ```
 
 ---
