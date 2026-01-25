@@ -11,7 +11,9 @@
 
 ## 🚀 Purpose
 
-Modern media often comes with a bloat of unnecessary tracks—commentary audio, multiple languages you don't speak, or dozens of subtitle formats. **TrackRemux** simplifies the process of removing this clutter.
+Modern media often comes with a bloat of unnecessary tracks - commentary audio, multiple languages you don't speak, or dozens of subtitle formats. **TrackRemux** simplifies the process of removing this clutter.
+
+![TrackRemux Demo](demo.gif)
 
 This not only saves significant disk space but also prevents the confusion and inconvenience of managing tracks in media players (like those on Smart TVs or mobile devices) where selecting the right audio or subtitle stream can be cumbersome or even impossible.
 
@@ -132,6 +134,8 @@ trackremux "My Movie.mkv"
 | **Enter** | Open selected file in Editor |
 | **M** | Toggle Mouse Support |
 | **Q** | Quit Application |
+| **R** | **Force Re-scan** current directory |
+| **Ctrl+C** | **Force Quit** instantly |
 | **N / S / T / A** | Sort by **N**ame, **S**ize, **T**racks, **A**udio Size |
 
 ### Track Editor

@@ -1,9 +1,12 @@
+import curses.ascii
+
 # Key Codes
 KEY_M_LOWER = ord("m")
 KEY_M_UPPER = ord("M")
-KEY_ESC = 27
-KEY_ENTER = 10
-KEY_SPACE = ord(" ")
+KEY_ESC = curses.ascii.ESC
+KEY_ENTER = curses.ascii.NL
+KEY_CTRL_C = curses.ascii.ETX
+KEY_SPACE = curses.ascii.SP
 KEY_Q_LOWER = ord("q")
 KEY_Q_UPPER = ord("Q")
 KEY_N_LOWER = ord("n")
@@ -16,6 +19,8 @@ KEY_A_LOWER = ord("a")
 KEY_A_UPPER = ord("A")
 KEY_L_LOWER = ord("l")
 KEY_L_UPPER = ord("L")
+KEY_R_LOWER = ord("r")
+KEY_R_UPPER = ord("R")
 
 # UI Layout
 MARGIN = 3

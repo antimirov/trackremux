@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-01-25
+
+### Added
+- **Global Background Scanner**: Scanning no longer stops when navigating between folders. It runs persistently in the background.
+- **Smart Prioritization**: The scanner now detects which files are visible on screen and bumps them to the front of the queue. Scrolling to "Z..." instantly scans "Z..." files.
+- **Asynchronous Loading**: Large directories now open instantly with a "Loading..." spinner, eliminating startup freeze.
+- **Rescan Hotkey**: Press `[R]` to force a re-scan of the current directory (bypassing cache).
+- **Graceful Exit**: Added global `Ctrl+C` support to force-quit the application safely from any screen.
+- **Dynamic Footer**: Context-aware footer labels (`Back` vs `Quit`).
+
+### Fixed
+- **Performance**: Fixed massive rendering lag on network drives by caching directory checks.
+- **Startup**: Fixed 5+ second hang when opening large directories.
+- **Consistency**: Unified `ESC`/`Q` behavior across the entire app.
+
 ## [0.4.0] - 2026-01-18
 
 ### Added

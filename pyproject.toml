@@ -1,6 +1,6 @@
 [project]
 name = "trackremux"
-version = "0.4.0"
+version = "0.5.0"
 description = "A powerful TUI tool to interactively select and remux audio/subtitle tracks from video files"
 authors = [
     {name = "Yevgen Antymyrov", email = "me@antimirov.net"}

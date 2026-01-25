@@ -17,6 +17,8 @@ from .constants import (
     KEY_N_UPPER,
     KEY_Q_LOWER,
     KEY_Q_UPPER,
+    KEY_R_LOWER,
+    KEY_R_UPPER,
     KEY_S_LOWER,
     KEY_S_UPPER,
     KEY_T_LOWER,
@@ -39,7 +41,13 @@ class FileExplorer:
         self.app = app
         self.path = os.path.abspath(path)
         self.back_view = back_view
-        self.filenames = self._get_items()
+        self.back_view = back_view
+        
+        # Initialize empty lists for async loading
+        self.dirs = []
+        self.files = []
+        self.filenames = []
+        self.loading = True
 
         # Metadata storage: {filename: media_file_object}
         self.metadata = {}
@@ -50,15 +58,77 @@ class FileExplorer:
         self.sort_mode = "name"  # 'name', 'size', 'tracks', 'audio_size'
         self.sort_reverse = False
         self.probed_count = 0
-        self.total_count = len(self.filenames)
+        self.total_count = 0
+        
+        # Track priority requests to avoid spamming the scanner queue
+        self.priority_requested = set()
 
-        # Start background prober
-        self.stopped = False
-        self.prober_thread = threading.Thread(target=self._background_probe)
-        self.prober_thread.daemon = True
-        self.prober_thread.start()
+        # Start async loading
+        threading.Thread(target=self._async_load, daemon=True).start()
 
-    def _get_items(self):
+    def _async_load(self):
+        """Load directory contents in background to allow immediate UI render."""
+        try:
+            self.dirs, self.files = self._get_items_separated()
+            self.filenames = self.dirs + self.files
+            self.total_count = len(self.files)
+            
+            # Quick size check immediately
+            self._quick_size_check()
+
+            # Submit probing tasks to global scanner (Background default for everything)
+            self._submit_scan_tasks()
+        except:
+            pass
+        finally:
+            self.loading = False
+            # Force refresh if possible? 
+            # The app loop handles it via timeout, so it will appear on next tick.
+
+    def _quick_size_check(self):
+        """Fast pass to get file sizes before probing."""
+        for f in self.files:
+            try:
+                full_path = os.path.join(self.path, f)
+                # No need to check isdir here, self.files only contains files
+                size = os.path.getsize(full_path)
+                with self.metadata_lock:
+                    if f not in self.metadata:
+                        self.metadata[f] = type(
+                            "obj",
+                            (object,),
+                            {"size_bytes": size, "probed": False, "tracks": [], "filename": f},
+                        )
+            except:
+                pass
+
+    def _submit_scan_tasks(self, force=False):
+        """Submit files to the global scanner background queue."""
+        tasks = []
+        for f in self.files:
+            full_path = os.path.join(self.path, f)
+            # No isdir check needed
+            
+            # We pass the filename as context to the callback so we know which entry to update
+            tasks.append((full_path, lambda p, m, fname=f: self._on_probe_complete(fname, m)))
+        
+        self.app.scanner.add_background_items(tasks, force=force)
+
+    def _on_probe_complete(self, filename, media):
+        """Callback from global scanner when probing is done."""
+        with self.metadata_lock:
+            self.metadata[filename] = media
+            media.probed = True
+            # Update counts?
+            # We don't strictly track probed_count vs total_count reliably for "Scanner" 
+            # because the scanner is global. But we can just count how many in our metadata have probed=True.
+            self.probed_count = sum(1 for m in self.metadata.values() if getattr(m, "probed", False))
+        
+        # Trigger redraw if this is the active view?
+        # The main loop redraws constantly on input, but if idle, we rely on timeout.
+        # APP_TIMEOUT_MS handles the refresh rate.
+
+    def _get_items_separated(self):
         extensions = (".mkv", ".mp4", ".avi", ".mov", ".m4v")
         try:
             items = []
@@ -78,51 +148,48 @@ class FileExplorer:
                 else:
                     files.append(i)
 
-            return sorted(dims) + sorted(files)
+            return sorted(dims), sorted(files)
         except Exception:
-            return []
+            return [], []
 
-    def _background_probe(self):
-        # First pass: get sizes (instant)
-        for f in self.filenames:
-            if self.stopped:
-                return
-            try:
-                size = os.path.getsize(os.path.join(self.path, f))
-                with self.metadata_lock:
-                    if f not in self.metadata:
-                        self.metadata[f] = type(
-                            "obj",
-                            (object,),
-                            {"size_bytes": size, "probed": False, "tracks": [], "filename": f},
-                        )
-            except:
-                pass
 
-        # Second pass: deep probe (slow)
-        for f in self.filenames:
-            if self.stopped:
-                return
-            try:
-                full_path = os.path.join(self.path, f)
-                media = MediaProbe.probe(full_path)
+
+    def _prioritize_visible(self, force=False):
+        """Re-submit visible unprobed files to the front of the scanner queue."""
+        height, width = self.app.stdscr.getmaxyx()
+        list_height = height - 5
+        sorted_files = self._get_sorted_files()
+        
+        # Calculate visible range
+        start = self.scroll_idx
+        end = min(len(sorted_files), self.scroll_idx + list_height)
+        visible_files = sorted_files[start:end]
+        
+        tasks_to_prioritize = []
+        for filename in visible_files:
+            # Skip directories
+            if filename in self.dirs:
+                continue
+                
+            # Check if needs probing, UNLESS forced
+            needs_probing = True
+            if not force:
                 with self.metadata_lock:
-                    self.metadata[f] = media
-                    media.probed = True
-            except:
-                pass
-            with self.metadata_lock:
-                self.probed_count += 1
-            time.sleep(0.01)
+                    if filename in self.metadata and getattr(self.metadata[filename], "probed", False):
+                        needs_probing = False
+            
+            if needs_probing:
+                full_path = os.path.join(self.path, filename)
+                tasks_to_prioritize.append((full_path, lambda p, m, fname=filename: self._on_probe_complete(fname, m)))
+        
+        if tasks_to_prioritize:
+            # Clear previous priority items to focus on this view
+            self.app.scanner.add_priority_items(tasks_to_prioritize, clear_priority=True, force=force)
 
     def _get_sorted_files(self):
-        # Directories always on top if default sort, otherwise mixed?
-        # Actually simplest is to just filter directories separate if we want special sort on files
-        # But for now let's just sort files part if metadata needed
-
-        # Split dirs and files
-        dirs = [f for f in self.filenames if os.path.isdir(os.path.join(self.path, f))]
-        files = [f for f in self.filenames if not os.path.isdir(os.path.join(self.path, f))]
+        # Use cached dirs and files list to avoid repeated os.path.isdir calls
+        dirs = self.dirs
+        files = list(self.files)  # Copy to avoid mutating original
 
         with self.metadata_lock:
             rev = self.sort_reverse
@@ -158,7 +225,7 @@ class FileExplorer:
                     ),
                     reverse=rev,
                 )
-        return sorted(dirs) + files
+        return dirs + files
 
     def draw(self):
         self.app.stdscr.erase()
@@ -235,6 +302,24 @@ class FileExplorer:
 
         # File List
         list_height = height - 5
+        
+        if self.loading:
+            # Show Loading State
+            msg = " Loading directory contents... "
+            y = height // 2
+            x = max(0, (width - len(msg)) // 2)
+            self.app.stdscr.addstr(y, x, msg, curses.color_pair(5) | curses.A_BOLD)
+            
+            # Simple Spinner?
+            spinner = "|/-\\"
+            cycle = int(time.time() * 10) % 4
+            self.app.stdscr.addstr(y + 1, width // 2, spinner[cycle], curses.color_pair(3))
+            
+            # Draw footer and return
+            self._draw_footer(height, width)
+            self.app.stdscr.refresh()
+            return
+
         if self.selected_idx >= len(sorted_files):
             self.selected_idx = max(0, len(sorted_files) - 1)
 
@@ -253,8 +338,12 @@ class FileExplorer:
 
             with self.metadata_lock:
                 # Directory handling
-                full_item_path = os.path.join(self.path, filename)
-                if os.path.isdir(full_item_path):
+                # Optimization: Check if filename is in self.dirs set/list instead of os.path.isdir?
+                # We know sorted_files is [dirs] + [files].
+                # But simple check is fast enough if we don't stat.
+                # Since we constructed it, we know the first len(self.dirs) are dirs IF we didn't mix them.
+                # But safer to just check existence in self.dirs
+                if filename in self.dirs:
                     display_filename = get_display_name(filename + "/", name_col_width)
                     # " [ DIR             ] " is 19 chars to match track info width
                     # track info is 19: "[xx aud: xxxxx.x ]"
@@ -334,18 +423,32 @@ class FileExplorer:
                 i + FILE_LIST_Y_OFFSET, 0, line[: width - 1].ljust(width - 1), attr
             )
 
+        self._draw_footer(height, width)
+
+        self.app.stdscr.refresh()
+        
+        # Trigger prioritization for current view
+        self._prioritize_visible()
+
+        
+    def _draw_footer(self, height, width):
         # Footer
         mouse_status = "APP" if self.app.mouse_enabled else "TERM"
         sort_footer = " Sort: [N]ame, [S]ize, [T]racks, [A]ud Size "
+        
+        quit_label = "Back" if self.back_view else "Quit"
         mouse_footer = f" [M] Mouse Select: {mouse_status} "
-        mouse_footer = f" [M] Mouse Select: {mouse_status} "
-        action_footer = " [ENTER] Open, [Q/ESC] Quit "
+        action_footer = f" [ENTER] Open, [R]escan, [Q/ESC] {quit_label} "
+        
         full_footer = f"{sort_footer} | {mouse_footer} | {action_footer}"
         self.app.stdscr.addstr(
             height - 1, 0, full_footer.center(width)[: width - 1], curses.color_pair(3)
         )
 
         self.app.stdscr.refresh()
+        
+        # Trigger prioritization for current view
+        self._prioritize_visible()
 
     def handle_input(self, key):
         height, width = self.app.stdscr.getmaxyx()
@@ -355,14 +458,27 @@ class FileExplorer:
         if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC):
             if self.back_view:
                 self.app.switch_view(self.back_view)
-                self.stopped = True
             else:
                 if self.app.mouse_enabled:
                     self.app.toggle_mouse()
-                self.stopped = True
                 self.app.switch_view(None)
         elif key in (KEY_M_LOWER, KEY_M_UPPER):
             self.app.toggle_mouse()
+        elif key in (KEY_R_LOWER, KEY_R_UPPER):
+            # Re-scan current directory
+            with self.metadata_lock:
+                # Reset metadata to unprobed state so UI shows update
+                for f in self.files:
+                    if f in self.metadata:
+                        # Keep size_bytes if available to avoid flicker?
+                        # Actually, keeping the object but setting probed=False is safest for flicker free
+                        # but we want scanning text to appear.
+                        self.metadata[f].probed = False
+                self.probed_count = 0
+            
+            self._submit_scan_tasks(force=True)
+            # Also prioritize visible immediately
+            self._prioritize_visible(force=True)
         elif key in (KEY_N_LOWER, KEY_N_UPPER):
             if self.sort_mode == "name":
                 self.sort_reverse = not self.sort_reverse
@@ -415,7 +531,6 @@ class FileExplorer:
                 if is_x:
                     if self.app.mouse_enabled:
                         self.app.toggle_mouse()
-                    self.stopped = True
                     self.app.switch_view(None)
                     return
 
@@ -447,8 +562,6 @@ class FileExplorer:
                 if os.path.isdir(file_path):
                     # Enter directory
                     self.app.switch_view(FileExplorer(self.app, file_path, back_view=self))
-                    self.stopped = True
-                    # TODO: decide if we should pause probing of current dir
                 else:
                     media = self.metadata.get(file_path)
                     from .editor import TrackEditor

@@ -4,7 +4,7 @@ import threading
 import time
 
 from ..core.converter import MediaConverter
-from .constants import KEY_Q_LOWER, KEY_Q_UPPER
+from .constants import KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER
 from .formatters import format_duration, format_size
 
 
@@ -163,7 +163,7 @@ class ProgressView:
         # Header
         self.app.stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
         self.app.stdscr.addstr(0, 0, " " * width)
-        self.app.stdscr.addstr(0, 1, "[Q] CANCEL", curses.color_pair(5))
+        self.app.stdscr.addstr(0, 1, "[Q/ESC] CANCEL", curses.color_pair(5))
         if width > 10:
             self.app.stdscr.addstr(0, width - 4, "[X]", curses.color_pair(5))
 
@@ -251,7 +251,7 @@ class ProgressView:
         if self.done:
             footer = " [ANY KEY] Return to Editor "
         else:
-            footer = " [Q] Cancel Conversion (matches ffmpeg) "
+            footer = " [Q/ESC] Cancel Conversion "
         self.app.stdscr.addstr(
             height - 1, 0, footer.center(width)[: width - 1], curses.color_pair(3)
         )
@@ -268,7 +268,7 @@ class ProgressView:
             return  # Exit after handling done state
 
         # Handle cancellation if not done
-        if key in (KEY_Q_LOWER, KEY_Q_UPPER):
+        if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC):
             self.cancel()
         elif key == curses.KEY_MOUSE and self.app.mouse_enabled:
             try:
