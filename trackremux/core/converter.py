@@ -89,7 +89,7 @@ class MediaConverter:
                 if track.bit_rate:
                     disabled_size += int((track.bit_rate * media_file.duration) / 8)
                 else:
-                    # Heuristic: if no bitrate, assume it's an audio track and take some default?
+                    # Fallback for audio tracks with missing bitrate metadata.
                     # Or just assume it's proportional to track count (risky for video).
                     # For now, if no bitrate for disabled track, we can't subtract accurately.
                     pass

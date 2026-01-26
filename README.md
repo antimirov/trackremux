@@ -25,6 +25,10 @@ Instead of wrestling with complex `ffmpeg` command-line arguments for every sing
 ## ✨ Features
 
 -   **Interactive TUI**: Built with `curses` for a fast, keyboard-centric workflow.
+-   **Batch Processing**: Automatically detects and processes TV shows/series/collections sequentially.
+    -   **Smart Detection**: Recognizes series patterns (S01E01, 1x01, Ep01) and groups by season.
+    -   **Structural Fingerprinting**: Groups files with identical track structure.
+    -   **Unified Editing**: Edit one file, apply changes to all files in the batch.
 -   **Rich Meta-data Explorer**:
     -   Displays file sizes, track counts, and audio languages at a glance.
     -   **Visual Status Indicators**: Instantly spot files that have already been converted (Green size) or are currently processing (Dim Yellow).
@@ -132,6 +136,7 @@ trackremux "My Movie.mkv"
 | **↑ / ↓** | Navigate file list |
 | **PgUp / PgDn** | Scroll pages |
 | **Enter** | Open selected file in Editor |
+| **B** | Open Batch Selector (when batches detected) |
 | **M** | Toggle Mouse Support |
 | **Q** | Quit Application |
 | **R** | **Force Re-scan** current directory |
@@ -154,7 +159,7 @@ trackremux "My Movie.mkv"
 *(Complexity: 🟢 Low, 🟡 Medium, 🔴 High)*
 *(Priority: 🔥 High, ⚡ Medium, 🧊 Low)*
 
-- [ ] 🟠 ⚡ **Batch Processing**: Select multiple files to queue for sequential remuxing.
+- [x] 🟠 ⚡ **Batch Processing**: ✅ **Completed in v0.6.0** - Automatic detection and sequential processing of TV series
 - [ ] 🔴 🧊 **Modern TUI**: Consider migrating to `Textual` for better UI/UX and cross-terminal compatibility.
 - [ ] 🟡 🔥 **Custom Rules**: Auto-selection of tracks based on preferred languages.
 - [ ] 🔴 🧊 **Multi-Language Streams**: Support for `mul` / dual-audio tracks (complex mapping).

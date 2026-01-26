@@ -2,6 +2,9 @@ import curses
 import os
 import sys
 import time
+import traceback
+
+from trackremux.core.preview import MediaPreview
 
 from ..core.scanner import GlobalScanner
 from .constants import APP_TIMEOUT_MS, KEY_CTRL_C
@@ -24,7 +27,7 @@ class TrackRemuxApp:
         curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
         curses.init_pair(4, curses.COLOR_RED, curses.COLOR_BLACK)
         curses.init_pair(5, curses.COLOR_BLACK, curses.COLOR_CYAN)  # Highlight
-        
+
         # Initialize Global Scanner
         self.scanner = GlobalScanner()
 
@@ -47,18 +50,16 @@ class TrackRemuxApp:
             while self.current_view:
                 self.current_view.draw()
                 key = self.stdscr.getch()
-                
+
                 # Handle Ctrl-C (3) explicitly
                 if key == KEY_CTRL_C:
                     raise KeyboardInterrupt
-                    
+
                 self.current_view.handle_input(key)
         except KeyboardInterrupt:
             # Graceful exit on Ctrl-C
             pass
         except Exception as e:
-            import traceback
-
             with open("trackremux_error.log", "w") as f:
                 f.write(f"Crashed at {time.ctime()}\n")
                 f.write(traceback.format_exc())
@@ -67,14 +68,17 @@ class TrackRemuxApp:
             curses.mousemask(0)
 
             # Ensure audio stops when quitting
-            from trackremux.core.preview import MediaPreview
-
             MediaPreview.stop()
             # Stop scanner
-            if self.current_view and hasattr(self.current_view, 'app') and hasattr(self.current_view.app, 'scanner'):
-                 self.current_view.app.scanner.stop()
-            elif hasattr(self, 'scanner'):
-                 self.scanner.stop()
+            # Stop scanner
+            if (
+                self.current_view
+                and hasattr(self.current_view, "app")
+                and hasattr(self.current_view.app, "scanner")
+            ):
+                self.current_view.app.scanner.stop()
+            elif hasattr(self, "scanner"):
+                self.scanner.stop()
 
     def switch_view(self, new_view):
         self.current_view = new_view

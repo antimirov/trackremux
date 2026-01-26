@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-01-26
+
+### Added
+- **🎯 Batch Processing**: Automatic detection and sequential processing of TV series and collections
+  - **Smart Category Detection**: Recognizes series patterns (`S01E01`, `01x01`, `Ep01`) and groups by season.
+  - **Anime-Style Support**: Smart detection of bare episode numbers (e.g., `Name 02`) with grouping logic that preserves the series context without creating redundant single-file seasons.
+  - **Structural Fingerprinting**: Ensures all files in a batch share identical track configurations (video/audio/subtitle counts and languages).
+  - **Batch Selector UI**: Review and select detected groups by pressing `[B]` in the Explorer view.
+  - **Unified Conversion**: Edit one representative file and apply selections to the entire batch with per-file progress tracking.
+- **🖱️ Comprehensive Mouse Interaction**:
+  - **Fully Clickable Footer**: All footer actions across Explorer and Editor now respond to single mouse clicks.
+  - **Smart Seek Controls**: Individual clickable `[←/→]` buttons in the editor for precise audio seeking.
+  - **Track Reordering**: Clickable `[Shift+↑/↓]` icons in the footer to reorder tracks via mouse.
+  - **Double-Click Support**: Files and directories now respond immediately to double-click without requiring prior selection.
+- **📄 Version Flag**: Added `-v` / `--version` support pulling name, version, and description directly from package metadata.
+
+### Changed
+- **UI Architecture**:
+  - **Split Footer Layout**: Sort controls are now left-aligned and actions right-aligned to prevent UI shifting during navigation.
+  - **Simplified Navigation**: Removed the redundant header `[X]` button; all back/quit navigation is now consolidated in the footer.
+- **Mouse Detection**: Switched to dynamic, position-based click detection for improved reliability across different terminal sizes.
+
+### Fixed
+- **Seek Backward**: Restored the missing `LEFT` arrow key handler in the audio preview.
+- **Code Quality**: Removed all conversational/AI-generated comments for professional consistency.
+- **Linting**: Resolved all `flake8` warnings regarding whitespace and indentation.
+
 ## [0.5.0] - 2026-01-25
 
 ### Added

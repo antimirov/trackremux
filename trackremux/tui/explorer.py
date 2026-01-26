@@ -4,11 +4,14 @@ import threading
 import time
 import unicodedata
 
-from ..core.probe import MediaProbe
+from ..core.batch import BatchDetector
+from .batch_selector import BatchSelectorView
 from .constants import (
     FILE_LIST_Y_OFFSET,
     KEY_A_LOWER,
     KEY_A_UPPER,
+    KEY_B_LOWER,
+    KEY_B_UPPER,
     KEY_ENTER,
     KEY_ESC,
     KEY_M_LOWER,
@@ -25,6 +28,7 @@ from .constants import (
     KEY_T_UPPER,
     MARGIN,
 )
+from .editor import TrackEditor
 from .formatters import format_size
 
 
@@ -42,7 +46,7 @@ class FileExplorer:
         self.path = os.path.abspath(path)
         self.back_view = back_view
         self.back_view = back_view
-        
+
         # Initialize empty lists for async loading
         self.dirs = []
         self.files = []
@@ -59,12 +63,77 @@ class FileExplorer:
         self.sort_reverse = False
         self.probed_count = 0
         self.total_count = 0
-        
+        self.batches = []  # Detected BatchGroup objects
+
         # Track priority requests to avoid spamming the scanner queue
         self.priority_requested = set()
 
         # Start async loading
+        self.load_start_time = time.time()
         threading.Thread(target=self._async_load, daemon=True).start()
+
+    def _shorten_path(self, path, max_len):
+        """
+        Shortens path using Unix-shell style (e.g. /Volumes/Media -> /V/M).
+        """
+        if len(path) <= max_len:
+            return path
+        
+        parts = path.split(os.sep)
+        # Handle root slash for absolute paths
+        if path.startswith(os.sep):
+            parts = [p for p in parts if p] # remove empty strings
+            prefix = os.sep
+        else:
+            prefix = ""
+            
+        if not parts:
+             return path
+             
+        # Always keep the last part full (current dir)
+        last = parts[-1]
+        
+        # Iteratively shorten leading parts
+        shortened_parts = []
+        # We need to preserve space for the last part
+        # If last part alone is too big, we just truncate the whole thing later
+        
+        current_len = len(prefix) + len(last) + len(parts) - 1 # separators
+        
+        for i, part in enumerate(parts[:-1]):
+            # Try to shorten this part to 1 char
+            shortened_parts.append(part[0] if part else "")
+            
+        # Reconstruct
+        # This is a naive 'shorten all' approach. 
+        # Better: Shorten from left until it fits.
+        
+        # Attempt to fit smartly by shrinking parts.
+        candidates = list(parts[:-1]) # copy
+        
+        # Calculate current full length
+        # len(prefix) + sum(len(p) for p in candidates) + len(last) + len(candidates) (separators)
+        
+        def get_len(cands):
+            return len(prefix) + sum(len(c) for c in cands) + len(last) + len(cands)
+            
+        # Loop and shorten from left
+        for i in range(len(candidates)):
+             if get_len(candidates) <= max_len:
+                 break
+             # Shorten candidates[i]
+             if candidates[i]:
+                 candidates[i] = candidates[i][0]
+        
+        result = prefix + os.sep.join(candidates + [last])
+        
+        # If still too long, truncate the middle of the result? or just the end?
+        if len(result) > max_len:
+            # Truncate end of last part if possible, or ellipsify
+             if len(result) > max_len:
+                 return result[:max_len-3] + "..."
+        
+        return result
 
     def _async_load(self):
         """Load directory contents in background to allow immediate UI render."""
@@ -72,7 +141,7 @@ class FileExplorer:
             self.dirs, self.files = self._get_items_separated()
             self.filenames = self.dirs + self.files
             self.total_count = len(self.files)
-            
+
             # Quick size check immediately
             self._quick_size_check()
 
@@ -82,7 +151,7 @@ class FileExplorer:
             pass
         finally:
             self.loading = False
-            # Force refresh if possible? 
+            # Force refresh if possible?
             # The app loop handles it via timeout, so it will appear on next tick.
 
     def _quick_size_check(self):
@@ -108,11 +177,32 @@ class FileExplorer:
         for f in self.files:
             full_path = os.path.join(self.path, f)
             # No isdir check needed
-            
+
             # We pass the filename as context to the callback so we know which entry to update
             tasks.append((full_path, lambda p, m, fname=f: self._on_probe_complete(fname, m)))
-        
+
         self.app.scanner.add_background_items(tasks, force=force)
+
+    def _detect_batches(self):
+        """Run batch detection on the current set of probed files."""
+        # This could be expensive, so we might want to debounce or limit it
+        # But for typical folder sizes (100-200), the regex/grouping is fast.
+        with self.metadata_lock:
+            # Filter only fully probed MediaFile objects (not placeholders)
+            probed_files = [
+                m
+                for m in self.metadata.values()
+                if getattr(m, "probed", False) and hasattr(m, "tracks")
+            ]
+
+        # Don't run if we have very strictly few files?
+        if len(probed_files) < 2:
+            return
+
+        new_batches = BatchDetector.detect_groups(probed_files)
+        # Update self.batches safely
+        # We don't need a lock for UI read unless we want to be super safe
+        self.batches = new_batches
 
     def _on_probe_complete(self, filename, media):
         """Callback from global scanner when probing is done."""
@@ -120,10 +210,17 @@ class FileExplorer:
             self.metadata[filename] = media
             media.probed = True
             # Update counts?
-            # We don't strictly track probed_count vs total_count reliably for "Scanner" 
+            # We don't strictly track probed_count vs total_count reliably for "Scanner"
             # because the scanner is global. But we can just count how many in our metadata have probed=True.
-            self.probed_count = sum(1 for m in self.metadata.values() if getattr(m, "probed", False))
-        
+            self.probed_count = sum(
+                1 for m in self.metadata.values() if getattr(m, "probed", False)
+            )
+
+        # Run detection occasionally?
+        # Every 5 files or if done?
+        if self.probed_count % 5 == 0 or self.probed_count == self.total_count:
+            self._detect_batches()
+
         # Trigger redraw if this is the active view?
         # The main loop redraws constantly on input, but if idle, we rely on timeout.
         # APP_TIMEOUT_MS handles the refresh rate.
@@ -152,39 +249,43 @@ class FileExplorer:
         except Exception:
             return [], []
 
-
-
     def _prioritize_visible(self, force=False):
         """Re-submit visible unprobed files to the front of the scanner queue."""
         height, width = self.app.stdscr.getmaxyx()
         list_height = height - 5
         sorted_files = self._get_sorted_files()
-        
+
         # Calculate visible range
         start = self.scroll_idx
         end = min(len(sorted_files), self.scroll_idx + list_height)
         visible_files = sorted_files[start:end]
-        
+
         tasks_to_prioritize = []
         for filename in visible_files:
             # Skip directories
             if filename in self.dirs:
                 continue
-                
+
             # Check if needs probing, UNLESS forced
             needs_probing = True
             if not force:
                 with self.metadata_lock:
-                    if filename in self.metadata and getattr(self.metadata[filename], "probed", False):
+                    if filename in self.metadata and getattr(
+                        self.metadata[filename], "probed", False
+                    ):
                         needs_probing = False
-            
+
             if needs_probing:
                 full_path = os.path.join(self.path, filename)
-                tasks_to_prioritize.append((full_path, lambda p, m, fname=filename: self._on_probe_complete(fname, m)))
-        
+                tasks_to_prioritize.append(
+                    (full_path, lambda p, m, fname=filename: self._on_probe_complete(fname, m))
+                )
+
         if tasks_to_prioritize:
             # Clear previous priority items to focus on this view
-            self.app.scanner.add_priority_items(tasks_to_prioritize, clear_priority=True, force=force)
+            self.app.scanner.add_priority_items(
+                tasks_to_prioritize, clear_priority=True, force=force
+            )
 
     def _get_sorted_files(self):
         # Use cached dirs and files list to avoid repeated os.path.isdir calls
@@ -237,22 +338,49 @@ class FileExplorer:
         self.app.stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
         self.app.stdscr.addstr(0, 0, " " * width)  # Clear the line
 
-        # [X] at the right
-        if width > 10:
-            self.app.stdscr.addstr(0, width - 4, "[X]", curses.color_pair(5))
+
 
         label = "Media Browser: "
-        path_str = f"{self.path} "
-        full_header_len = len(label) + len(path_str)
-
-        if full_header_len < width - 20:
-            # Title at the left
-            start_x = 0
-            self.app.stdscr.addstr(0, start_x, label, curses.color_pair(1) | curses.A_BOLD)
-            self.app.stdscr.addstr(0, start_x + len(label), path_str, curses.A_DIM)
-            header_end = start_x + full_header_len
-        else:
-            header_end = 10  # Fallback if way too small
+        
+        # Calculate available width for path
+        # Width - Label - Right Area (Sort + Batch + Padding + Scanning Progress estimate)
+        # Scan progress is roughly 35 chars: " Scanning: [##########] 9999/9999 "
+        # Sort block is roughly 30 chars.
+        # Header [X] is 4 chars.
+        # Batch is variable but usually ~20 chars.
+        
+        # Maximize path width, but stop before overlapping.
+        
+        # Re-calculate right-side content first to know space?
+        # Sort area x
+        sort_label = self.sort_mode.replace("_", " ").title()
+        dir_arrow = "↓" if self.sort_reverse else "↑"
+        sort_text = f" [ Sorted by: {sort_label} {dir_arrow} ] "
+        sort_x = width - len(sort_text)
+        
+        left_limit = sort_x
+        
+        if self.batches:
+            batch_text = f" [B]ATCH: {len(self.batches)} groups "
+            batch_x = sort_x - len(batch_text) - 2
+            left_limit = batch_x
+            
+        # Also account for "Scanning..." text which comes AFTER the path.
+        # If we render path, we implicitly push scanning text to the right.
+        # But we want scanning text to be visible.
+        # So: Path + Scanning should <= Left Limit.
+        
+        scanning_width = 35 # Reserve space for scanning status
+        
+        max_path_width = max(10, left_limit - len(label) - scanning_width - 2)
+        
+        # Shorten path
+        path_str = self._shorten_path(self.path, max_path_width) + " "
+        
+        start_x = 0
+        self.app.stdscr.addstr(0, start_x, label, curses.color_pair(1) | curses.A_BOLD)
+        self.app.stdscr.addstr(0, start_x + len(label), path_str, curses.A_DIM)
+        header_end = start_x + len(label) + len(path_str)
 
         self.app.stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
 
@@ -260,6 +388,8 @@ class FileExplorer:
         with self.metadata_lock:
             p_count = self.probed_count
             t_count = self.total_count
+
+        # Batch Indicator in Header
 
         if t_count > 0:
             if p_count < t_count:
@@ -281,14 +411,31 @@ class FileExplorer:
                         0, start_col, complete_text, curses.color_pair(2) | curses.A_BOLD
                     )
 
-        # Sorted By Label
+        # Sorted By Label (right-aligned)
         sort_label = self.sort_mode.replace("_", " ").title()
         dir_arrow = "↓" if self.sort_reverse else "↑"
         sort_text = f" [ Sorted by: {sort_label} {dir_arrow} ] "
-        if width > len(sort_text):  # Ensure it fits on the right
+        sort_x = width - len(sort_text)
+        if width > len(sort_text):  # Ensure it fits
             self.app.stdscr.addstr(
-                0, width - len(sort_text), sort_text, curses.color_pair(3) | curses.A_BOLD
+                0, sort_x, sort_text, curses.color_pair(3) | curses.A_BOLD
             )
+
+        # Batch Indicator in Header (Positioned left of Sort)
+        if self.batches:
+            batch_text = f" [B]ATCH: {len(self.batches)} groups "
+            batch_len = len(batch_text)
+            # Position it left of sort_text with some padding
+            batch_x = sort_x - batch_len - 2
+            
+            # Ensure it doesn't overlap with left-side content (approx 40-50 chars usually)
+            # But header_end tracks title + scan progress
+            # scanning progress ends around header_end + 30?
+            # Safe check: width > 80?
+            if batch_x > 20: 
+                self.app.stdscr.addstr(
+                    0, batch_x, batch_text, curses.color_pair(5) | curses.A_BOLD
+                )
 
         # Column Headers
         # track_info (19) + space (1) + name + space (1) + lang (17) + size (10)
@@ -302,19 +449,25 @@ class FileExplorer:
 
         # File List
         list_height = height - 5
-        
+
         if self.loading:
+            # Debounce: Only show loading if it takes longer than 200ms
+            if time.time() - self.load_start_time < 0.2:
+                self._draw_footer(height, width)
+                self.app.stdscr.refresh()
+                return
+
             # Show Loading State
             msg = " Loading directory contents... "
             y = height // 2
             x = max(0, (width - len(msg)) // 2)
             self.app.stdscr.addstr(y, x, msg, curses.color_pair(5) | curses.A_BOLD)
-            
+
             # Simple Spinner?
             spinner = "|/-\\"
             cycle = int(time.time() * 10) % 4
             self.app.stdscr.addstr(y + 1, width // 2, spinner[cycle], curses.color_pair(3))
-            
+
             # Draw footer and return
             self._draw_footer(height, width)
             self.app.stdscr.refresh()
@@ -426,27 +579,41 @@ class FileExplorer:
         self._draw_footer(height, width)
 
         self.app.stdscr.refresh()
-        
+
         # Trigger prioritization for current view
         self._prioritize_visible()
 
-        
     def _draw_footer(self, height, width):
-        # Footer
+        # Footer - split into left and right sections
         mouse_status = "APP" if self.app.mouse_enabled else "TERM"
         sort_footer = " Sort: [N]ame, [S]ize, [T]racks, [A]ud Size "
-        
+
         quit_label = "Back" if self.back_view else "Quit"
-        mouse_footer = f" [M] Mouse Select: {mouse_status} "
-        action_footer = f" [ENTER] Open, [R]escan, [Q/ESC] {quit_label} "
-        
-        full_footer = f"{sort_footer} | {mouse_footer} | {action_footer}"
+        mouse_footer = f"[M] Mouse: {mouse_status}"
+        batch_opt = "[B]atch | " if self.batches else ""
+        action_footer = f"[ENTER] Open | {batch_opt}[R]escan | [Q/ESC] {quit_label} "
+
+        # Draw left-aligned sort section
+        left_text = sort_footer[:width - 1]
         self.app.stdscr.addstr(
-            height - 1, 0, full_footer.center(width)[: width - 1], curses.color_pair(3)
+            height - 1, 0, left_text, curses.color_pair(3)
         )
+        
+        # Draw right-aligned action section
+        right_text = f" {mouse_footer} | {action_footer}"
+        # Ensure we don't exceed screen width and leave room for last column
+        x_pos = max(len(left_text) + 2, width - len(right_text) - 1)
+        if x_pos > 0 and x_pos < width - 1:
+            # Truncate text to fit within bounds
+            max_len = width - x_pos - 1
+            if max_len > 0:
+                display_text = right_text[:max_len]
+                self.app.stdscr.addstr(
+                    height - 1, x_pos, display_text, curses.color_pair(3)
+                )
 
         self.app.stdscr.refresh()
-        
+
         # Trigger prioritization for current view
         self._prioritize_visible()
 
@@ -470,15 +637,20 @@ class FileExplorer:
                 # Reset metadata to unprobed state so UI shows update
                 for f in self.files:
                     if f in self.metadata:
-                        # Keep size_bytes if available to avoid flicker?
-                        # Actually, keeping the object but setting probed=False is safest for flicker free
+                        # Keep the object but set probed=False to avoid flicker
                         # but we want scanning text to appear.
                         self.metadata[f].probed = False
                 self.probed_count = 0
-            
+
+            self._submit_scan_tasks(force=True)
+            # Also prioritize visible immediately
             self._submit_scan_tasks(force=True)
             # Also prioritize visible immediately
             self._prioritize_visible(force=True)
+        elif key in (KEY_B_LOWER, KEY_B_UPPER):
+            # Enter Batch Mode
+            if self.batches:
+                self.app.switch_view(BatchSelectorView(self.app, self.batches, back_view=self))
         elif key in (KEY_N_LOWER, KEY_N_UPPER):
             if self.sort_mode == "name":
                 self.sort_reverse = not self.sort_reverse
@@ -525,34 +697,87 @@ class FileExplorer:
                 if bstate & curses.BUTTON_SHIFT:
                     return  # Ignore if shift is held to allow terminal selection
 
-                # Header [X] button
-                is_x = my == 0 and mx >= width - 4
 
-                if is_x:
-                    if self.app.mouse_enabled:
-                        self.app.toggle_mouse()
-                    self.app.switch_view(None)
-                    return
 
                 # List starts at row FILE_LIST_Y_OFFSET.
                 row_in_list = my - FILE_LIST_Y_OFFSET
                 if 0 <= row_in_list < list_height:
                     target_idx = self.scroll_idx + row_in_list
                     if target_idx < len(sorted_files):
-                        if target_idx == self.selected_idx and (
-                            bstate & curses.BUTTON1_DOUBLE_CLICKED
-                        ):
-                            # Open file on double click
-                            filename = sorted_files[self.selected_idx]
+                        # Check for double-click first
+                        if bstate & curses.BUTTON1_DOUBLE_CLICKED:
+                            # Open file/directory on double click
+                            filename = sorted_files[target_idx]
                             file_path = os.path.join(self.path, filename)
-                            media = self.metadata.get(file_path)
-                            from .editor import TrackEditor
-
-                            self.app.switch_view(
-                                TrackEditor(self.app, media or file_path, back_view=self)
-                            )
+                            
+                            if os.path.isdir(file_path):
+                                # Enter directory
+                                self.app.switch_view(FileExplorer(self.app, file_path, back_view=self))
+                            else:
+                                # Open file in editor
+                                media = self.metadata.get(filename)
+                                self.app.switch_view(
+                                    TrackEditor(self.app, media or file_path, back_view=self)
+                                )
                         else:
+                            # Single click - just select
                             self.selected_idx = target_idx
+                
+                # Footer buttons (row is height - 1)
+                if my == height - 1:
+                    # Build footer to find click zones (now split into left and right sections)
+                    mouse_status = "APP" if self.app.mouse_enabled else "TERM"
+                    sort_footer = " Sort: [N]ame, [S]ize, [T]racks, [A]ud Size "
+                    quit_label = "Back" if self.back_view else "Quit"
+                    mouse_footer = f"[M] Mouse: {mouse_status}"
+                    batch_opt = "[B]atch | " if self.batches else ""
+                    action_footer = f"[ENTER] Open | {batch_opt}[R]escan | [Q/ESC] {quit_label} "
+                    right_text = f" {mouse_footer} | {action_footer}"
+                    
+                    # Use dynamic position detection for all buttons
+                    def find_button(text, search_string):
+                        idx = search_string.find(text)
+                        if idx != -1:
+                            return idx, idx + len(text)
+                        return None, None
+                    
+                    # Check left section (sort) buttons - starts at position 0
+                    left_start = 0
+                    buttons_left = [
+                        ("[N]ame", KEY_N_LOWER),
+                        ("[S]ize", KEY_S_LOWER),
+                        ("[T]racks", KEY_T_LOWER),
+                        ("[A]ud Size", KEY_A_LOWER),
+                    ]
+                    
+                    for button_text, key_code in buttons_left:
+                        start, end = find_button(button_text, sort_footer)
+                        if start is not None:
+                            abs_start = left_start + start
+                            abs_end = left_start + end
+                            if abs_start <= mx <= abs_end:
+                                self.handle_input(key_code)
+                                return
+                    
+                    # Check right section buttons
+                    right_start = max(len(sort_footer) + 2, width - len(right_text))
+                    buttons_right = [
+                        ("[M]", KEY_M_LOWER),
+                        ("[B]atch", KEY_B_LOWER),
+                        ("[ENTER]", KEY_ENTER),
+                        ("[R]escan", KEY_R_LOWER),
+                        ("[Q/ESC]", KEY_Q_LOWER),
+                    ]
+                    
+                    for button_text, key_code in buttons_right:
+                        start, end = find_button(button_text, right_text)
+                        if start is not None:
+                            abs_start = right_start + start
+                            abs_end = right_start + end
+                            if abs_start <= mx <= abs_end:
+                                self.handle_input(key_code)
+                                return
+
             except:
                 pass
         elif key == KEY_ENTER:  # Enter
@@ -564,6 +789,5 @@ class FileExplorer:
                     self.app.switch_view(FileExplorer(self.app, file_path, back_view=self))
                 else:
                     media = self.metadata.get(file_path)
-                    from .editor import TrackEditor
 
                     self.app.switch_view(TrackEditor(self.app, media or file_path, back_view=self))

@@ -5,6 +5,7 @@ from ..core.converter import MediaConverter
 from ..core.languages import LANGUAGE_MAP
 from ..core.preview import MediaPreview
 from ..core.probe import MediaProbe
+from .batch_progress import BatchProgressView
 from .constants import (
     APP_TIMEOUT_MS,
     KEY_ENTER,
@@ -24,10 +25,11 @@ from .constants import (
     TRACK_LIST_Y_OFFSET,
 )
 from .formatters import format_duration, format_size
+from .progress import ProgressView
 
 
 class TrackEditor:
-    def __init__(self, app, file_path_or_media, back_view=None):
+    def __init__(self, app, file_path_or_media, back_view=None, batch_group=None):
         self.app = app
         if hasattr(file_path_or_media, "path"):  # It's a MediaFile
             self.media_file = file_path_or_media
@@ -36,11 +38,17 @@ class TrackEditor:
             self.file_path = file_path_or_media
             self.media_file = MediaProbe.probe(file_path_or_media)
         self.back_view = back_view
+        self.batch_group = batch_group
         self.selected_idx = 0
         self.scroll_idx = 0
         self.status_message = ""
         self.confirming_exit = False
+        self.status_message = ""
+        self.confirming_exit = False
         self.current_preview_time = 0.0
+        self.previewing_subs = False
+        self.preview_lines = []
+        self.preview_scroll = 0
 
         # Track if we are viewing an already converted state
         base_name = os.path.splitext(self.media_file.filename)[0]
@@ -79,41 +87,48 @@ class TrackEditor:
                 return LANGUAGE_MAP[token]
         return None
 
+        return display
+
     def _get_short_source_name(self, external_path):
         """
         Returns a shortened display name for the external file.
-        Removes common prefix with main file and truncates if necessary.
+        Uses longest common prefix to strip redundant info.
         """
         if not external_path:
             return ""
 
         fname = os.path.basename(external_path)
-        main_base = os.path.splitext(self.media_file.filename)[0]
+        base = os.path.splitext(self.media_file.filename)[0]
 
-        # Check if external file starts with main file's name (case-insensitive)
-        if fname.lower().startswith(main_base.lower()):
-            # Strip the prefix
-            shortened = fname[len(main_base) :]
-            # If it starts with a separator, strip that too
-            if shortened and shortened[0] in (".", "_", "-"):
-                shortened = shortened[1:]
-
-            # If we stripped it down to just extension or empty, keep original or ensure visibility
-            if not shortened or shortened.startswith("."):
-                # This might happen if file is "Movie.mkv" and ext is "Movie.srt" -> "srt"
-                # Better to show the extension clearly?
-                pass
-
-            display = shortened
-        else:
-            display = fname
-
-        # Truncate if still too long
+        # Use common prefix
+        # Case insensitive check
+        s1 = fname.lower()
+        s2 = base.lower()
+        
+        # Manually find length of common prefix
+        length = 0
+        min_len = min(len(s1), len(s2))
+        while length < min_len and s1[length] == s2[length]:
+            length += 1
+            
+        if length > 5: # Only strip if significant overlap
+             shortened = fname[length:]
+             # If starts with separator, strip it
+             if shortened and shortened[0] in (".", "_", "-"):
+                 shortened = shortened[1:]
+             
+             # If result is empty or just extension, keep it descriptive?
+             # e.g. "Movie.srt" -> "srt". Prefer "srt" or ".srt"
+             if not shortened:
+                 shortened = os.path.splitext(fname)[1]
+             
+             return shortened
+        
+        # Fallback to standard truncation if no common prefix
         max_len = 30
-        if len(display) > max_len:
-            display = display[: max_len - 3] + "..."
-
-        return display
+        if len(fname) > max_len:
+            return fname[: max_len - 3] + "..."
+        return fname
 
     def _scan_external_tracks(self):
         """Scans the directory RECURSIVELY for sibling audio and subtitle files and adds them."""
@@ -127,9 +142,8 @@ class TrackEditor:
         try:
             # Walk top-down
             # Limit depth? Walk is depth-first but we can limit logic.
-            # Actually standard os.walk visits everything.
-            # We probably only want 1 or 2 levels deep to avoid scanning entire volumes if user opened root.
-            # Let's assume user opens a movie folder which contains the structure.
+            # Standard os.walk visits everything.
+            # We assume user opens a movie folder which contains the structure.
             # Safety: limit complexity by counting.
 
             scanned_files = []
@@ -160,6 +174,35 @@ class TrackEditor:
                 is_sub = f.lower().endswith(sub_exts)
 
                 if is_audio or is_sub:
+                    base = base_name.lower()
+                    fname_lower = f.lower()
+
+                    # Mutual Prefix Matching:
+                    # 1. Ext starts with Main (Standard: Movie.en.srt matches Movie.mkv)
+                    # 2. Main starts with Ext (Tagged: Movie[EtHD].mkv matches Movie.srt)
+
+                    matched = False
+
+                    # Case 1: Ext starts with Main
+                    if fname_lower.startswith(base):
+                        rest = fname_lower[len(base):]
+                        if not rest or rest[0] in (".", "_", "-", " ", "[", "("):
+                            matched = True
+
+                    # Case 2: Main starts with Ext (only if Ext is reasonably long to avoid "The.srt" matching "The Matrix.mkv")
+                    # We must compare stems, not full filename with extension
+                    stem_lower = os.path.splitext(f)[0].lower()
+                    
+                    if not matched and base.startswith(stem_lower):
+                        # Ensure Ext is not too short (e.g. at least 3 chars)
+                        if len(stem_lower) >= 3:
+                            rest = base[len(stem_lower):]
+                            if not rest or rest[0] in (".", "_", "-", " ", "[", "("):
+                                matched = True
+
+                    if not matched:
+                        continue
+
                     try:
                         # Probe it
                         ext_media = MediaProbe.probe(full)
@@ -245,12 +288,15 @@ class TrackEditor:
         self.app.stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
         self.app.stdscr.addstr(0, 0, " " * width)  # Clear the line
 
-        # [X] at the right
-        if width > 10:
-            self.app.stdscr.addstr(0, width - 4, "[X]", curses.color_pair(5))
 
-        label = " Editing: "
-        fname = f"{self.media_file.filename} "
+
+        if self.batch_group:
+            label = " BATCH EDITING: "
+            fname = f"{self.batch_group.name} ({self.batch_group.count} files) "
+        else:
+            label = " Editing: "
+            fname = f"{self.media_file.filename} "
+
         full_header_len = len(label) + len(fname)
 
         if full_header_len < width - 20:
@@ -355,25 +401,80 @@ class TrackEditor:
 
             opts = " [S]ave & Start   [Y] Save & Back   [N] Discard "
             self.app.stdscr.addstr(my + 4, mx + (mw - len(opts)) // 2, opts, curses.color_pair(5))
+            
+
 
         self.app.stdscr.refresh()
+
+        # Subtitle Preview Overlay
+        if self.previewing_subs and self.preview_lines:
+            mw = min(80, width - 4)
+            mh = min(30, height - 4)
+            my = (height - mh) // 2
+            mx = (width - mw) // 2
+            
+            # Draw box
+            for r in range(mh):
+                self.app.stdscr.addstr(my + r, mx, " " * mw, curses.color_pair(3))
+            
+            # Header
+            title = " Subtitle Preview (First 2000 lines) "
+            self.app.stdscr.addstr(my, mx + (mw - len(title))//2, title, curses.color_pair(3) | curses.A_BOLD)
+            
+            # Content
+            content_h = mh - 2
+            for i in range(content_h):
+                line_idx = self.preview_scroll + i
+                if line_idx < len(self.preview_lines):
+                    line = self.preview_lines[line_idx]
+                    # truncation
+                    if len(line) > mw - 2:
+                        line = line[:mw-5] + "..."
+                    self.app.stdscr.addstr(my + 1 + i, mx + 2, line, curses.color_pair(3))
+            
+            # Footer
+            footer = " [UP/DOWN] Scroll | [ESC/ENTER] Close "
+            self.app.stdscr.addstr(my + mh - 1, mx + (mw - len(footer))//2, footer, curses.color_pair(3))
 
     def handle_input(self, key):
         height, width = self.app.stdscr.getmaxyx()
 
+        # Subtitle Preview Handling
+        if self.previewing_subs:
+            if key in (KEY_ESC, KEY_ENTER, ord("q"), ord("Q")):
+                self.previewing_subs = False
+                self.preview_lines = []
+            elif key == curses.KEY_UP:
+                if self.preview_scroll > 0:
+                    self.preview_scroll -= 1
+            elif key == curses.KEY_DOWN:
+                if self.preview_scroll < len(self.preview_lines) - 1:
+                     self.preview_scroll += 1
+            elif key == curses.KEY_PPAGE:
+                self.preview_scroll = max(0, self.preview_scroll - 10)
+            elif key == curses.KEY_NPAGE:
+                self.preview_scroll = max(0, min(len(self.preview_lines) - 1, self.preview_scroll + 10))
+            return
+
         if self.confirming_exit:
             if key in (ord("s"), ord("S")):
                 # Start conversion immediately
+                MediaPreview.stop()
                 self.commit_changes()
-                from .progress import ProgressView
-
-                self.app.switch_view(ProgressView(self.app, self.media_file, self))
+                if self.batch_group:
+                    self.app.switch_view(
+                        BatchProgressView(self.app, self.batch_group, self.media_file, self)
+                    )
+                else:
+                    self.app.switch_view(ProgressView(self.app, self.media_file, self))
             elif key in (ord("y"), ord("Y"), KEY_ENTER):
                 # Just save and go back
+                MediaPreview.stop()
                 self.commit_changes()
                 self.app.switch_view(self.back_view)
             elif key in (ord("n"), ord("N")):
                 # Restore initial state and go back
+                MediaPreview.stop()
                 # Reconstruct track list based on initial state
                 restored_tracks = []
                 # Map current tracks by index for easy lookup
@@ -405,16 +506,25 @@ class TrackEditor:
 
                         if 1 <= rel_x <= 15:  # [S]ave & Start
                             self.status_message = " Commencing conversion... "
+                            MediaPreview.stop()
                             self.commit_changes()
-                            from .progress import ProgressView
-
-                            self.app.switch_view(ProgressView(self.app, self.media_file, self))
+                            self.commit_changes()
+                            if self.batch_group:
+                                self.app.switch_view(
+                                    BatchProgressView(
+                                        self.app, self.batch_group, self.media_file, self
+                                    )
+                                )
+                            else:
+                                self.app.switch_view(ProgressView(self.app, self.media_file, self))
                         elif 18 <= rel_x <= 32:  # [Y] Save & Back
                             self.status_message = " Saving selection... "
+                            MediaPreview.stop()
                             self.commit_changes()
                             self.app.switch_view(self.back_view)
                         elif 35 <= rel_x <= 45:  # [N] Discard
                             self.status_message = " Discarding changes... "
+                            MediaPreview.stop()
                             # Restore logic duplicated from key handler
                             restored_tracks = []
                             track_map = {t.index: t for t in self.media_file.tracks}
@@ -437,6 +547,7 @@ class TrackEditor:
                 if self.app.mouse_enabled:
                     # Logic should be in toggle_mouse but we want it off on exit
                     pass
+                MediaPreview.stop()
                 if self.back_view:
                     self.app.switch_view(self.back_view)
                 else:
@@ -449,18 +560,7 @@ class TrackEditor:
             try:
                 _, mx, my, _, _ = curses.getmouse()
 
-                # Header [X] button
-                is_back = False  # Removed
-                is_x = my == 0 and mx >= width - 4
 
-                if is_back or is_x:
-                    if self._has_changes():
-                        self.confirming_exit = True
-                    elif self.back_view:
-                        self.app.switch_view(self.back_view)
-                    else:
-                        self.app.switch_view(None)
-                    return
 
                 row_in_list = my - TRACK_LIST_Y_OFFSET
                 list_height = height - TRACK_EDITOR_INFO_HEIGHT
@@ -478,6 +578,64 @@ class TrackEditor:
                                 self.status_message = " Video tracks cannot be disabled. "
                         else:
                             self.selected_idx = target_idx
+                
+                # Footer buttons (row is height - 1)
+                if my == height - 1:
+                    # Build footer to find click zones
+                    mouse_status = "APP SELECT" if self.app.mouse_enabled else "TERM SELECT"
+                    footer = f" [SPACE] Toggle | [ENTER] Play | [L] Lang | [Shift+↑/↓] Reorder | [←/→] Seek | [S] Start | [M] Mouse: {mouse_status} | [Q/ESC] Back "
+                    
+                    # Center the footer
+                    footer_start = (width - len(footer)) // 2
+                    rel_x = mx - footer_start
+                    
+                    # Use dynamic position detection for all buttons
+                    def find_button(text):
+                        idx = footer.find(text)
+                        if idx != -1:
+                            return idx, idx + len(text)
+                        return None, None
+                    
+                    # Check each button (use position-based detection for combined [←/→])
+                    # Find the [←/→] text position
+                    seek_start = footer.find("[←/→]")
+                    if seek_start != -1:
+                        # Left arrow is at seek_start to seek_start+2
+                        # Right arrow is at seek_start+2 to seek_start+4
+                        if seek_start <= rel_x <= seek_start + 1:
+                            self.handle_input(curses.KEY_LEFT)
+                            return
+                        elif seek_start + 2 <= rel_x <= seek_start + 4:
+                            self.handle_input(curses.KEY_RIGHT)
+                            return
+                    
+                    # Check for Shift+↑/↓ reorder buttons
+                    shift_arrows = footer.find("[Shift+↑/↓]")
+                    if shift_arrows != -1:
+                        # Up arrow around position shift_arrows+7
+                        # Down arrow around position shift_arrows+9
+                        if shift_arrows + 7 <= rel_x <= shift_arrows + 8:
+                            self.handle_input(curses.KEY_SR)  # Shift+Up
+                            return
+                        elif shift_arrows + 9 <= rel_x <= shift_arrows + 10:
+                            self.handle_input(curses.KEY_SF)  # Shift+Down
+                            return
+                    
+                    # Check other buttons
+                    buttons = [
+                        ("[SPACE]", KEY_SPACE),
+                        ("[ENTER]", KEY_ENTER),
+                        ("[L]", KEY_L_LOWER),
+                        ("[S]", KEY_S_LOWER),
+                        ("[M]", KEY_M_LOWER),
+                        ("[Q/ESC]", KEY_Q_LOWER),
+                    ]
+                    
+                    for button_text, key_code in buttons:
+                        start, end = find_button(button_text)
+                        if start is not None and start <= rel_x <= end:
+                            self.handle_input(key_code)
+                            return
             except:
                 pass
         elif key == curses.KEY_UP:
@@ -510,17 +668,25 @@ class TrackEditor:
         elif key == KEY_ENTER:  # Enter
             self.current_preview_time = 0.0  # Reset seek on new track play
             self._play_current_track()
-        # Seeking logic removed for consistency with 'Left to go back'
-        # unless we want to keep it? User asked for Left to exit.
+        elif key == curses.KEY_LEFT:
+            if self.current_preview_time - SEEK_STEP_SECONDS >= 0:
+                self.current_preview_time -= SEEK_STEP_SECONDS
+            else:
+                self.current_preview_time = 0
+            self._play_current_track()
         elif key == curses.KEY_RIGHT:
             if self.current_preview_time + SEEK_STEP_SECONDS < self.media_file.duration:
                 self.current_preview_time += SEEK_STEP_SECONDS
             self._play_current_track()
         elif key in (KEY_S_LOWER, KEY_S_UPPER):
             self.commit_changes()
-            from .progress import ProgressView
-
-            self.app.switch_view(ProgressView(self.app, self.media_file, self))
+            self.commit_changes()
+            if self.batch_group:
+                self.app.switch_view(
+                    BatchProgressView(self.app, self.batch_group, self.media_file, self)
+                )
+            else:
+                self.app.switch_view(ProgressView(self.app, self.media_file, self))
         elif key in (KEY_L_LOWER, KEY_L_UPPER):
             self._edit_language()
         elif key == curses.KEY_SR:  # Shift+Up - Move Up
@@ -577,9 +743,55 @@ class TrackEditor:
         else:
             self.status_message = " Invalid language code or cancelled. "
 
+
+
+    def _show_subtitle_preview(self, path):
+        """Reads the first few lines of a subtitle file and enables preview mode."""
+        try:
+            self.preview_lines = []
+            with open(path, "rb") as f:
+                # Read binary to check for null bytes
+                content = f.read(4096)
+                if b"\0" in content:
+                    self.status_message = " Cannot preview binary file. "
+                    return
+                
+                # Decode
+                text = ""
+                try:
+                    text = content.decode("utf-8")
+                except UnicodeDecodeError:
+                    try:
+                        text = content.decode("latin-1")
+                    except:
+                        pass
+                
+                if not text:
+                    self.status_message = " Empty or unreadable file. "
+                    return
+
+                self.preview_lines = text.splitlines()[:2000] # Limit to 2000 lines
+                self.previewing_subs = True
+                self.preview_scroll = 0
+                self.status_message = f" Previewing {os.path.basename(path)} "
+
+        except Exception as e:
+            self.status_message = f" Error reading file: {e} "
+
     def _play_current_track(self):
         height, width = self.app.stdscr.getmaxyx()
         track = self.media_file.tracks[self.selected_idx]
+        
+        # New: Subtitle Preview
+        if track.codec_type == "subtitle":
+            if track.source_path:
+                self._show_subtitle_preview(track.source_path)
+            else:
+                 # Internal subtitle? Can't easy preview without extraction.
+                 # Internal subtitle preview not supported strictly yet.
+                 self.status_message = " Preview not supported for internal subtitles yet. "
+            return
+
         if track.codec_type != "audio":
             return
 
@@ -596,20 +808,9 @@ class TrackEditor:
                 break
             if t == track:
                 break
-            # We must only count 'sibling' tracks of same type WITHIN THE SAME SOURCE FILE
-            # IF using relative index. ffmpeg -map 0:a:0 etc.
-            # BUT wait, MediaPreview uses ffplay or ffmpeg -ss ...
-            # Implementation of extract_snippet:
-            # cmd = ["ffmpeg", "-ss", ..., "-i", source_path, "-map", f"0:{codec_type}:{track_index}"]
-            # So we need the index relative to that file's specific codec stream list? or absolute?
-            # MediaProbe returns absolute index "index".
-            # Let's check MediaPreview.
-            # If we pass absolute stream index "0:2", we don't need type_idx logic?
-            # Current MediaPreview implementation takes "track_index" which is 0-based index of THAT TYPE.
-
-            # So if track.source_path is set, we need its index relative to THAT file.
-            # track.index from MediaProbe is absolute index in that file.
-            # check MediaPreview usage...
+            # MediaPreview.extract_snippet uses ffmpeg -map 0:{codec}:{index}.
+            # We must calculate the relative index of this track among all tracks 
+            # of the same type within the same source file.
 
             if t.source_path == track.source_path and t.codec_type == track.codec_type:
                 type_idx += 1
