@@ -1,18 +1,118 @@
 import curses
 import os
+import shutil
 import threading
 import time
 
 from ..core.converter import MediaConverter
+from ..core.models import OutputMode
 from .constants import KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER
 from .formatters import format_duration, format_size
 
+# Hidden directory names used for staging and trash
+STAGING_DIR = ".trackremux_staging"
+TRASH_DIR = ".trackremux_trash"
+
+
+def resolve_output_path(media_file, output_mode: OutputMode) -> str:
+    """
+    Determine the final destination path for the converted file,
+    based on the chosen output mode.
+
+    LOCAL     → <cwd>/converted_<name>.mkv
+    REMOTE    → <source_dir>/converted_<name>.mkv
+    OVERWRITE → <source_dir>/<original_name>  (same path, same name)
+    """
+    base_name = os.path.splitext(media_file.filename)[0]
+    source_dir = os.path.dirname(os.path.abspath(media_file.path))
+
+    if output_mode == OutputMode.LOCAL:
+        return os.path.join(os.getcwd(), f"converted_{base_name}.mkv")
+    elif output_mode == OutputMode.REMOTE:
+        return os.path.join(source_dir, f"converted_{base_name}.mkv")
+    elif output_mode == OutputMode.OVERWRITE:
+        return media_file.path  # Will be replaced atomically
+    return os.path.join(os.getcwd(), f"converted_{base_name}.mkv")
+
+
+def resolve_batch_output_path(media_file, output_mode: OutputMode, batch_source_dir: str) -> str:
+    """
+    Determine the output path for a file in a batch conversion.
+
+    Instead of prefixing each file with converted_, batch operations create
+    a converted_<dir_name>/ directory and keep original filenames inside.
+
+    LOCAL     → <cwd>/converted_<dir_name>/<original_name>.mkv
+    REMOTE    → <source_parent>/converted_<dir_name>/<original_name>.mkv
+    OVERWRITE → <source_dir>/<original_name>  (same path, same name)
+    """
+    if output_mode == OutputMode.OVERWRITE:
+        return media_file.path
+
+    dir_name = os.path.basename(os.path.normpath(batch_source_dir))
+    base_name = os.path.splitext(media_file.filename)[0]
+    out_filename = f"{base_name}.mkv"
+
+    if output_mode == OutputMode.LOCAL:
+        out_dir = os.path.join(os.getcwd(), f"converted_{dir_name}")
+    else:  # REMOTE
+        parent_dir = os.path.dirname(os.path.normpath(batch_source_dir))
+        out_dir = os.path.join(parent_dir, f"converted_{dir_name}")
+
+    os.makedirs(out_dir, exist_ok=True)
+    return os.path.join(out_dir, out_filename)
+
+
+def resolve_staging_path(output_path: str) -> str:
+    """Return a path inside the hidden staging dir next to the output file."""
+    output_dir = os.path.dirname(os.path.abspath(output_path))
+    staging_dir = os.path.join(output_dir, STAGING_DIR)
+    os.makedirs(staging_dir, exist_ok=True)
+    return os.path.join(staging_dir, os.path.basename(output_path))
+
+
+def atomic_finalize(staging_path: str, final_path: str, output_mode: OutputMode) -> None:
+    """
+    Move the staged file to its final destination atomically.
+
+    OVERWRITE mode: move original to .trackremux_trash/, then rename staged.
+    Other modes: simply rename staged → final.
+
+    Falls back to shutil.move if os.rename fails (cross-volume).
+    """
+    if output_mode == OutputMode.OVERWRITE and os.path.exists(final_path):
+        # Move original to trash (same volume → instant)
+        trash_dir = os.path.join(os.path.dirname(final_path), TRASH_DIR)
+        os.makedirs(trash_dir, exist_ok=True)
+        trash_path = os.path.join(trash_dir, os.path.basename(final_path))
+        try:
+            os.rename(final_path, trash_path)
+        except OSError:
+            shutil.move(final_path, trash_path)
+
+    try:
+        os.rename(staging_path, final_path)
+    except OSError:
+        shutil.move(staging_path, final_path)
+
+    # Clean up empty staging directory
+    staging_dir = os.path.dirname(staging_path)
+    try:
+        if os.path.isdir(staging_dir) and not os.listdir(staging_dir):
+            os.rmdir(staging_dir)
+    except OSError:
+        pass
+
 
 class ProgressView:
-    def __init__(self, app, media_file, back_view):
+    def __init__(self, app, media_file, back_view,
+                 output_mode: OutputMode = OutputMode.LOCAL,
+                 convert_audio: bool = False):
         self.app = app
         self.media_file = media_file
         self.back_view = back_view
+        self.output_mode = output_mode
+        self.convert_audio = convert_audio
         self.logs = []
         self.logs_lock = threading.Lock()
         self.done = False
@@ -27,12 +127,15 @@ class ProgressView:
         self.start_time = time.time()
         self.end_time = None
 
-        # Build command and estimate size
-        base_name = os.path.splitext(self.media_file.filename)[0]
-        self.output_name = f"converted_{base_name}.mkv"
-        self.temp_output = f"temp_{base_name}.mkv"
-        self.ffmpeg_cmd = MediaConverter.build_ffmpeg_command(self.media_file, self.temp_output)
-        self.estimated_size_mb = MediaConverter.estimate_output_size(self.media_file) / 1024 / 1024
+        # Resolve paths
+        self.output_path = resolve_output_path(media_file, output_mode)
+        self.staging_path = resolve_staging_path(self.output_path)
+        self.output_name = os.path.basename(self.output_path)
+
+        self.ffmpeg_cmd = MediaConverter.build_ffmpeg_command(
+            media_file, self.staging_path, convert_audio=convert_audio
+        )
+        self.estimated_size_mb = MediaConverter.estimate_output_size(media_file) / 1024 / 1024
         self.actual_size_mb = 0.0
 
         # Get total frames for progress tracking
@@ -48,7 +151,9 @@ class ProgressView:
 
     def _run_conversion(self):
         try:
-            self.process = MediaConverter.convert(self.media_file, self.temp_output)
+            self.process = MediaConverter.convert(
+                self.media_file, self.staging_path, convert_audio=self.convert_audio
+            )
 
             # Read output in real-time
             for line in self.process.stdout:
@@ -61,24 +166,32 @@ class ProgressView:
                 self.end_time = time.time()
                 self.success = self.process.returncode == 0
 
-                duration_str = format_duration(self.end_time - self.start_time)
-
                 if self.success:
-                    if os.path.exists(self.temp_output):
-                        final_size_mb = os.path.getsize(self.temp_output) / 1024 / 1024
-                        self.status = f"Success! Final size: {format_size(final_size_mb)}"
+                    if os.path.exists(self.staging_path):
+                        final_size_mb = os.path.getsize(self.staging_path) / 1024 / 1024
                         try:
-                            if os.path.exists(self.output_name):
-                                os.remove(self.output_name)
-                            os.rename(self.temp_output, self.output_name)
+                            atomic_finalize(self.staging_path, self.output_path, self.output_mode)
+                            self.status = f"Success! Final size: {format_size(final_size_mb)}"
                         except Exception as e:
-                            self.status = f"Error moving file: {e}"
+                            self.status = f"Error finalizing file: {e}"
                     else:
                         self.status = "Success! (File moved/renamed)"
                 else:
+                    # Clean up partial staging file on failure
+                    if os.path.exists(self.staging_path):
+                        try:
+                            os.remove(self.staging_path)
+                        except Exception:
+                            pass
                     self.status = f"Conversion failed (code {self.process.returncode})."
             else:
                 self.end_time = time.time()
+                # Clean up partial staging file on cancel
+                if os.path.exists(self.staging_path):
+                    try:
+                        os.remove(self.staging_path)
+                    except Exception:
+                        pass
                 self.status = "Conversion cancelled."
 
         except Exception as e:
@@ -93,7 +206,7 @@ class ProgressView:
             self.cancelled = True
             try:
                 self.process.terminate()
-            except:
+            except Exception:
                 pass
             self.status = "Cancelling..."
 
@@ -128,15 +241,15 @@ class ProgressView:
                         current_frame = int(value)
                         if self.total_frames > 0:
                             self.percent = int((current_frame / self.total_frames) * 100)
-                    elif key in ("out_time_ms", "out_time_us") and self.percent == 0:
+                    elif key in ("out_time_ms", "out_time_us"):
                         try:
                             divisor = 1000000.0 if key == "out_time_us" else 1000.0
                             current_seconds = float(value) / divisor
                             if self.media_file.duration > 0:
-                                self.percent = int(
-                                    (current_seconds / self.media_file.duration) * 100
-                                )
-                        except:
+                                time_pct = int((current_seconds / self.media_file.duration) * 100)
+                                if time_pct > self.percent:
+                                    self.percent = time_pct
+                        except Exception:
                             pass
                     elif key == "total_size" and value.isdigit():
                         self.actual_size_mb = int(value) / 1024 / 1024
@@ -179,7 +292,9 @@ class ProgressView:
         self.app.stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
 
         # Output Info
-        target_info = f" Converting to: {self.output_name} "
+        mode_label = self.output_mode.value.upper()
+        audio_label = " | Audio: AC3 640k" if self.convert_audio else ""
+        target_info = f" [{mode_label}] → {self.output_name}{audio_label} "
         self.app.stdscr.addstr(1, 0, target_info.center(width), curses.A_BOLD)
 
         # Command (Wrapped)
@@ -259,13 +374,11 @@ class ProgressView:
         self.app.stdscr.refresh()
 
     def handle_input(self, key):
-        height, width = self.app.stdscr.getmaxyx()
-
         if self.done:
             # Pass success status back to TrackEditor
             self.back_view.status_message = self.status
             self.app.switch_view(self.back_view)
-            return  # Exit after handling done state
+            return
 
         # Handle cancellation if not done
         if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC):
@@ -273,9 +386,9 @@ class ProgressView:
         elif key == curses.KEY_MOUSE and self.app.mouse_enabled:
             try:
                 _, mx, my, _, _ = curses.getmouse()
+                height, width = self.app.stdscr.getmaxyx()
                 if my == 0:  # Click in the header row
-                    # [Q] CANCEL at left (1-10) or [X] at right (width-4 to width-1)
                     if (1 <= mx <= 10) or (mx >= width - 4 and mx < width):
                         self.cancel()
-            except:
+            except Exception:
                 pass

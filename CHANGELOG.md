@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-02-22
+
+### Added
+- **💾 Output Modes**: Introduced three save modes via an interactive `[O/L/R]` overlay dialog:
+  - `[O]verwrite` — atomic in-place replacement of source files
+  - `[L]ocal` — save `converted_*` files to the current working directory
+  - `[R]emote` — save `converted_*` files next to the source files
+  - Mode selection is remembered per session to avoid repetitive prompts.
+- **📁 Smart Batch Output**: Batch conversions (TV seasons, collections) now create a `converted_<directory>/` folder with original filenames preserved inside, instead of prefixing every individual file.
+- **🛡️ NAS-Safe Atomic Swaps**: All conversions write to a hidden `.trackremux_staging/` directory first, then atomically swap into place. Original files are safely moved to `.trackremux_trash/` during overwrites. Staging directories are automatically cleaned up after completion.
+- **🔊 Audio Conditioning (DTS → AC3)**: Toggle `[C]` to transcode DTS/DTS-HD/TrueHD audio to universally compatible AC3 640k, ensuring Direct Play on devices like LG WebOS TVs without touching video streams.
+- **⚡ Smart Default Profiles**: Configurable language preferences (`keep_langs`, `discard_langs`, `prefer_ac3_over_dts`) stored in `~/.config/trackremux/config.toml`. Interactive profile editor via `[P]` with cursor-based inline text editing and instant toggle saves. Auto-apply matching profiles to files with `[A]`.
+- **🔍 Track Identity Preservation**: Injects a case-insensitive `trackremux_id` metadata tag into MKV streams for deterministic track re-mapping when reloading converted files, completely bypassing FFmpeg codec obfuscation.
+- **🔐 Read-Only FS Detection**: The Save dialog automatically detects read-only source filesystems and warns users before attempting Overwrite or Remote saves.
+- **📊 Contextual Save Dialog**: The Save overlay now shows exactly what will be created per mode — full output paths for single files, or directory names with file counts for batch operations.
+
+### Changed
+- **Batch Progress UI**: Batch conversions now show a dedicated progress view with file-by-file progress (`1/10`, `2/10`...), per-file progress bar, and a completion summary screen.
+
 ## [0.6.0] - 2026-01-26
 
 ### Added

@@ -4,15 +4,21 @@ import threading
 import time
 
 from ..core.converter import MediaConverter
+from ..core.models import OutputMode
 from .constants import KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER
+from .progress import atomic_finalize, resolve_batch_output_path, resolve_staging_path
 
 
 class BatchProgressView:
-    def __init__(self, app, batch_group, template_media, back_view):
+    def __init__(
+        self, app, batch_group, template_media, back_view, output_mode=OutputMode.LOCAL, convert_audio=False
+    ):
         self.app = app
         self.batch_group = batch_group
         self.template_media = template_media
         self.back_view = back_view
+        self.output_mode = output_mode
+        self.convert_audio = convert_audio
         self.logs = []
         self.logs_lock = threading.Lock()
 
@@ -71,14 +77,29 @@ class BatchProgressView:
                 self.current_file = f
                 self.percent = 0
                 self.frame_status = ""
+                
+                # Calculate total frames for progress bar 
+                self.total_frames = 0
+                for track in f.tracks:
+                    if track.codec_type == "video":
+                        try:
+                            if "/" in track.avg_frame_rate:
+                                num, den = track.avg_frame_rate.split("/")
+                                fps = float(num) / float(den)
+                            else:
+                                fps = float(track.avg_frame_rate)
+                            self.total_frames = int(fps * f.duration)
+                            break
+                        except Exception:
+                            pass
 
                 fname = os.path.basename(f.filename)
                 self.status = f"Processing {i+1}/{len(self.files_to_process)}: {fname}"
 
-                # prepare output names
-                base_name = os.path.splitext(f.filename)[0]
-                output_name = f"converted_{base_name}.mkv"
-                temp_output = f"temp_{base_name}.mkv"
+                # prepare output names — use batch directory layout
+                batch_source_dir = os.path.dirname(os.path.abspath(f.path))
+                output_path = resolve_batch_output_path(f, self.output_mode, batch_source_dir)
+                staging_output = resolve_staging_path(output_path)
 
                 # Apply config
                 self._apply_template(f)
@@ -88,7 +109,7 @@ class BatchProgressView:
 
                 # Run conversion
                 try:
-                    self.process = MediaConverter.convert(f, temp_output)
+                    self.process = MediaConverter.convert(f, staging_output, self.convert_audio)
 
                     # Read loop similar to ProgressView
                     for line in self.process.stdout:
@@ -103,11 +124,9 @@ class BatchProgressView:
 
                     if self.process.returncode == 0:
                         # Success move
-                        if os.path.exists(temp_output):
+                        if os.path.exists(staging_output):
                             try:
-                                if os.path.exists(output_name):
-                                    os.remove(output_name)
-                                os.rename(temp_output, output_name)
+                                atomic_finalize(staging_output, output_path, self.output_mode)
                                 self.results.append(f"SUCCESS: {fname}")
                             except Exception as e:
                                 self.results.append(f"ERROR moving {fname}: {e}")
@@ -153,31 +172,54 @@ class BatchProgressView:
         self.status = "Cancelling Batch..."
 
     def _update_status(self, line, current_file):
-        # ... logic derived from ProgressView ...
-        # Simplified for brevity here, reused mostly
         line = line.strip()
         if not line:
             return
 
-        is_internal = False
+        is_progress_internal = False
         if "=" in line:
             parts = line.split("=", 1)
             if len(parts) == 2:
                 key, value = [p.strip() for p in parts]
-                if key == "progress" and value == "end":
-                    self.percent = 100
-                elif key == "out_time_ms" and current_file.duration > 0:
-                    try:
-                        ms = float(value)
-                        self.percent = int((ms / 1000000.0 / current_file.duration) * 100)
-                        self.percent = max(0, min(100, self.percent))
-                    except Exception:
-                        pass
-                    is_internal = True
+
+                progress_keys = (
+                    "frame",
+                    "fps",
+                    "bitrate",
+                    "total_size",
+                    "out_time_ms",
+                    "out_time_us",
+                    "out_time",
+                    "dup_frames",
+                    "drop_frames",
+                    "speed",
+                    "progress",
+                )
+
+                if key in progress_keys or key.startswith("stream_"):
+                    is_progress_internal = True
+                    if key == "frame" and value.isdigit():
+                        current_frame = int(value)
+                        if self.total_frames > 0:
+                            self.percent = int((current_frame / self.total_frames) * 100)
+                    elif key in ("out_time_ms", "out_time_us"):
+                        try:
+                            divisor = 1000000.0 if key == "out_time_us" else 1000.0
+                            current_seconds = float(value) / divisor
+                            if current_file and current_file.duration > 0:
+                                time_pct = int((current_seconds / current_file.duration) * 100)
+                                if time_pct > self.percent:
+                                    self.percent = time_pct
+                        except Exception:
+                            pass
+                    elif key == "progress" and value == "end":
+                        self.percent = 100
+
+                    self.percent = max(0, min(100, self.percent))
 
         if line.startswith("frame="):
             self.frame_status = line
-        elif not is_internal:
+        elif not is_progress_internal:
             with self.logs_lock:
                 for part in line.split("\r"):
                     part = part.strip()
@@ -207,7 +249,9 @@ class BatchProgressView:
 
         if self.current_file:
             fname = os.path.basename(self.current_file.filename)
-            self.app.stdscr.addstr(y + 1, 1, f" Current: {fname} ", curses.color_pair(2))
+            if len(fname) > width - 15:
+                fname = fname[:width-18] + "..."
+            self.app.stdscr.addstr(y + 1, 1, f" Current: {fname} ", curses.color_pair(2) | curses.A_BOLD)
 
         # Bar
         bar_width = min(60, width - 15)
@@ -219,8 +263,7 @@ class BatchProgressView:
 
         self.app.stdscr.addstr(y + 5, 1, self.status.center(width), curses.color_pair(3))
 
-        if self.frame_status:
-            self.app.stdscr.addstr(y + 6, 1, self.frame_status.center(width), curses.A_DIM)
+        # Cleaned up raw ffmpeg logs to prevent visual UI clutter during batch runs
 
         # History/Results
         res_y = y + 8
@@ -234,7 +277,7 @@ class BatchProgressView:
 
         # Footer
         if self.done:
-            footer = " [ANY KEY] Return to Explorer "
+            footer = " [ENTER] Return to Explorer "
             # Pass return logic? The user might want to go back to file list.
         else:
             footer = " [Q/ESC] Cancel Batch "
@@ -246,6 +289,8 @@ class BatchProgressView:
 
     def handle_input(self, key):
         if self.done:
+            if key not in (curses.KEY_ENTER, 10, 13, KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER):
+                return
             # Navigate back to the FileExplorer, skipping intermediate views if possible.
             if hasattr(self.back_view, "back_view") and self.back_view.back_view:
                 target = self.back_view.back_view

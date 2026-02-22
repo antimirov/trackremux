@@ -10,9 +10,7 @@ class GlobalScanner:
     def __init__(self):
         self.priority_queue = collections.deque()
         self.background_queue = collections.deque()
-        self.processed_files = (
-            set()
-        )  # To avoid re-scanning identical files if needed, currently loose
+        self.processed_files = {}  # Cache: path -> MediaFile object
         self.queue_lock = threading.Lock()
         self.running = True
         self.thread = threading.Thread(target=self._worker, daemon=True)
@@ -31,7 +29,7 @@ class GlobalScanner:
 
             if force:
                 for path, _ in items:
-                    self.processed_files.discard(path)
+                    self.processed_files.pop(path, None)
 
             # We reverse to keep the order within the added batch correct when pushing to front
             # e.g. [A, B, C] -> push C, then B, then A -> Queue: [A, B, C, ...]
@@ -49,7 +47,7 @@ class GlobalScanner:
         with self.queue_lock:
             if force:
                 for path, _ in items:
-                    self.processed_files.discard(path)
+                    self.processed_files.pop(path, None)
 
             for item in items:
                 self.background_queue.append(item)
@@ -78,9 +76,12 @@ class GlobalScanner:
             file_path, callback = task
 
             # Check if already processed to avoid re-work
-            # This allows safe re-submission for prioritization
-            # Avoid redundant scanning by checking the processed set.
             if file_path in self.processed_files:
+                if callback:
+                    try:
+                        callback(file_path, self.processed_files[file_path])
+                    except Exception:
+                        pass
                 continue
 
             if not os.path.exists(file_path):
@@ -95,7 +96,7 @@ class GlobalScanner:
                 if callback:
                     callback(file_path, media)
 
-                self.processed_files.add(file_path)
+                self.processed_files[file_path] = media
             except Exception:
                 # pass or log
                 pass

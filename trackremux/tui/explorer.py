@@ -5,6 +5,8 @@ import time
 import unicodedata
 
 from ..core.batch import BatchDetector
+from ..core.converter import MediaConverter
+from ..core.probe import MediaProbe
 from .batch_selector import BatchSelectorView
 from .constants import (
     FILE_LIST_Y_OFFSET,
@@ -12,8 +14,13 @@ from .constants import (
     KEY_A_UPPER,
     KEY_B_LOWER,
     KEY_B_UPPER,
+    KEY_C_UPPER,
+    KEY_D_LOWER,
+    KEY_D_UPPER,
     KEY_ENTER,
     KEY_ESC,
+    KEY_F_LOWER,
+    KEY_F_UPPER,
     KEY_M_LOWER,
     KEY_M_UPPER,
     KEY_N_LOWER,
@@ -64,6 +71,11 @@ class FileExplorer:
         self.probed_count = 0
         self.total_count = 0
         self.batches = []  # Detected BatchGroup objects
+
+        # Cache for expensive DTS>AC3 probe checks: { filename: bool }
+        self.dts_badge_cache = {}
+
+        self.dts_filter = False  # [F] toggle: show only files with DTS audio
 
         # Track priority requests to avoid spamming the scanner queue
         self.priority_requested = set()
@@ -231,7 +243,7 @@ class FileExplorer:
             items = []
             for f in os.listdir(self.path):
                 full = os.path.join(self.path, f)
-                if os.path.isdir(full) and not f.startswith("."):
+                if os.path.isdir(full) and not f.startswith(".") and not f.startswith("converted_"):
                     items.append(f)
                 elif f.lower().endswith(extensions):
                     if not f.startswith("converted_") and not f.startswith("temp_"):
@@ -326,6 +338,19 @@ class FileExplorer:
                     ),
                     reverse=rev,
                 )
+
+            # DTS filter: drop files that have no DTS audio track (only when filter on)
+            if self.dts_filter:
+                files = [
+                    f for f in files
+                    if f in self.metadata
+                    and getattr(self.metadata[f], "probed", False)
+                    and any(
+                        t.codec_type == "audio" and t.codec_name.lower() in {"dts", "dts-hd"}
+                        for t in self.metadata[f].tracks
+                    )
+                ]
+
         return dirs + files
 
     def draw(self):
@@ -438,11 +463,11 @@ class FileExplorer:
                 )
 
         # Column Headers
-        # track_info (19) + space (1) + name + space (1) + lang (17) + size (10)
-        fixed_width = 51 + MARGIN  # 19 + 1 + 17 + 2 + 10 + 2
+        # track_info (26) + space (1) + name + space (1) + lang (15) + space (2) + size (10)
+        fixed_width = 55 + MARGIN  # 26 + 1 + 15 + 2 + 10 + 1(margin/padding approx)
         name_col_width = max(20, width - fixed_width)
 
-        headers = f" {'TRACKS / AUDIO SIZE':<19} {'FILENAME':<{name_col_width}} {'LANGUAGES':<17}  {'SIZE':>10}"
+        headers = f" {'TRACKS / AUDIO SIZE':<26} {'FILENAME':<{name_col_width}} {'LANGUAGES':<15}  {'SIZE':>10}"
         self.app.stdscr.addstr(
             1, 0, headers[: width - 1].ljust(width - 1), curses.A_BOLD | curses.A_UNDERLINE
         )
@@ -498,9 +523,9 @@ class FileExplorer:
                 # But safer to just check existence in self.dirs
                 if filename in self.dirs:
                     display_filename = get_display_name(filename + "/", name_col_width)
-                    # " [ DIR             ] " is 19 chars to match track info width
-                    # track info is 19: "[xx aud: xxxxx.x ]"
-                    dir_tag = " [ DIR             ]"
+                    # " [ DIR                 ] " is 24 chars to match new track info width
+                    # track info is 24: " [xx aud: DTS xxxxx.x ]"
+                    dir_tag = " [ DIR                 ]"
                     line = f"{dir_tag} {display_filename}"
                     self.app.stdscr.addstr(
                         i + FILE_LIST_Y_OFFSET,
@@ -525,40 +550,123 @@ class FileExplorer:
                 size_str = format_size(size_mb, precision=1)
                 a_size_str = format_size(audio_size_mb, precision=1).replace(" ", "")
 
-                track_info = f"[{len(audio_tracks):>2} aud: {a_size_str:>8} ]"
-                display_filename = get_display_name(filename, name_col_width)
-                line = f" {track_info} {display_filename} ({langs[:15]:<15})  {size_str:>10}"
-
-                # Check for converted counterpart or temp status
+                # Set DTS badge logic
+                has_dts = any(
+                    t.codec_type == "audio" and t.codec_name.lower() in MediaConverter.DTS_CODECS
+                    for t in audio_tracks
+                )
+                
+                # Check for converted counterpart or temp status early for badge logic
                 is_converted = filename.startswith("converted_")
                 is_temp = filename.startswith("temp_")
-                has_converted = os.path.exists(os.path.join(self.path, "converted_" + filename))
+                
+                local_out = os.path.join(os.getcwd(), "converted_" + filename)
+                remote_out = os.path.join(self.path, "converted_" + filename)
+                
+                # Also check batch output directories:
+                # converted_<current_dir_name>/<filename> in CWD or parent dir
+                current_dir_name = os.path.basename(os.path.normpath(self.path))
+                base_name = os.path.splitext(filename)[0]
+                batch_local = os.path.join(os.getcwd(), f"converted_{current_dir_name}", f"{base_name}.mkv")
+                batch_remote = os.path.join(
+                    os.path.dirname(os.path.normpath(self.path)),
+                    f"converted_{current_dir_name}",
+                    f"{base_name}.mkv",
+                )
+                
+                output_path = None
+                if os.path.exists(local_out):
+                    output_path = local_out
+                elif os.path.exists(remote_out):
+                    output_path = remote_out
+                elif os.path.exists(batch_local):
+                    output_path = batch_local
+                elif os.path.exists(batch_remote):
+                    output_path = batch_remote
+                
+                has_converted = output_path is not None
 
+                dts_tag = "    "
+                if has_dts and not self.dts_filter:
+                    dts_tag = " DTS"
+                    
+                    # If this file was already processed, peek into cache or probe it once
+                    if has_converted:
+                        if filename in self.dts_badge_cache:
+                            if self.dts_badge_cache[filename]:
+                                dts_tag = "DTS>AC3"
+                        else:
+                            # Not in cache, probe it asynchronously to prevent UI freeze
+                            self.dts_badge_cache[filename] = False  # Default to false while probing
+                            
+                            def _probe_badge(path=output_path, name=filename, tracks=audio_tracks):
+                                try:
+                                    from ..core.probe import MediaProbe
+                                    from ..core.converter import MediaConverter
+                                    ex_media = MediaProbe.probe(path)
+                                    is_t = False
+                                    for ex_track in ex_media.tracks:
+                                        lower_tags = {k.lower(): v for k, v in ex_track.tags.items()}
+                                        if "trackremux_id" in lower_tags and ex_track.codec_type == "audio" and ex_track.codec_name.lower() == "ac3":
+                                            src_idx = int(lower_tags["trackremux_id"])
+                                            if any(t.index == src_idx and t.codec_name.lower() in MediaConverter.DTS_CODECS for t in tracks):
+                                                is_t = True
+                                                break
+                                    if is_t:
+                                        self.dts_badge_cache[name] = True
+                                except Exception:
+                                    pass
+                                    
+                            import threading
+                            threading.Thread(target=_probe_badge, daemon=True).start()
+                            
+                # Format appropriately: DTS is 4 chars, DTS>AC3 is 7 chars.
+                f_dts_tag = dts_tag.ljust(7)
+                # Ensure the total size of track_info is exactly 26 characters
+                track_info = f"[{len(audio_tracks):>2} aud: {f_dts_tag} {a_size_str:>8} ]"
+                # Truncate and pad filename to exactly name_col_width
+                display_filename = get_display_name(filename, name_col_width).ljust(name_col_width)
+                
+                # Language column exactly 15 chars
+                lang_str = f"({langs[:13]})".ljust(15)
+                
+                # Size column exactly 10 chars
+                sz_str = f"{size_str:>10}"
+                
+                # Compose line with exact spacing
+                # 1(space) + 26(track) + 1(space) + name_col_width + 1(space) + 15(lang) + 2(space) + 10(size)
+                # Note: `track_info` is exactly 26 chars long due to `DTS>AC3` (7 chars) + strict padding
+                line = f" {track_info} {display_filename} {lang_str}  {sz_str}"
+
+                # Draw the base line
                 self.app.stdscr.addstr(
                     i + FILE_LIST_Y_OFFSET, 0, line[: width - 1].ljust(width - 1), attr
                 )
 
                 # Overwrite size with color if interesting
                 if idx != self.selected_idx:
-                    size_x = len(line) - 10
-                    if is_converted:
-                        self.app.stdscr.addstr(
-                            i + FILE_LIST_Y_OFFSET,
-                            size_x,
-                            f"{size_str:>10}",
-                            curses.color_pair(2) | curses.A_BOLD,
-                        )
-                    elif is_temp:
-                        self.app.stdscr.addstr(
-                            i + FILE_LIST_Y_OFFSET,
-                            size_x,
-                            f"{size_str:>10}",
-                            curses.color_pair(3) | curses.A_DIM,
-                        )
-                    elif has_converted:
-                        self.app.stdscr.addstr(
-                            i + FILE_LIST_Y_OFFSET, size_x, f"{size_str:>10}", curses.color_pair(1)
-                        )
+                    # Size starts 10 chars from the end of the composed line (before trailing spaces if width > len(line))
+                    # But if the window is too small, we shouldn't draw out of bounds
+                    size_x = max(0, len(line) - 10)
+                    if size_x + 10 <= width - 1:
+                        if is_converted:
+                            self.app.stdscr.addstr(
+                                i + FILE_LIST_Y_OFFSET,
+                                size_x,
+                                sz_str,
+                                curses.color_pair(2) | curses.A_BOLD,
+                            )
+                        elif is_temp:
+                            self.app.stdscr.addstr(
+                                i + FILE_LIST_Y_OFFSET,
+                                size_x,
+                                sz_str,
+                                curses.color_pair(3) | curses.A_DIM,
+                            )
+                        elif has_converted:
+                            self.app.stdscr.addstr(
+                                i + FILE_LIST_Y_OFFSET, size_x, sz_str, curses.color_pair(1)
+                            )
                 continue  # Skip the default addstr below
             elif media:
                 size_mb = media.size_bytes / 1024 / 1024
@@ -586,7 +694,8 @@ class FileExplorer:
     def _draw_footer(self, height, width):
         # Footer - split into left and right sections
         mouse_status = "APP" if self.app.mouse_enabled else "TERM"
-        sort_footer = " Sort: [N]ame, [S]ize, [T]racks, [A]ud Size "
+        filter_tag = " DTS" if self.dts_filter else " All"
+        sort_footer = f" Sort: [N]ame, [S]ize, [T]racks, [A]ud Size | [D] Filter:{filter_tag} "
 
         quit_label = "Back" if self.back_view else "Quit"
         mouse_footer = f"[M] Mouse: {mouse_status}"
@@ -675,6 +784,11 @@ class FileExplorer:
             else:
                 self.sort_mode = "audio_size"
                 self.sort_reverse = True
+        elif key in (KEY_D_LOWER, KEY_D_UPPER):
+            self.dts_filter = not self.dts_filter
+            # Reset selection so we don't point at an out-of-range index
+            self.selected_idx = 0
+            self.scroll_idx = 0
         elif key == curses.KEY_UP:
             if self.selected_idx > 0:
                 self.selected_idx -= 1

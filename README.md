@@ -39,9 +39,22 @@ Instead of wrestling with complex `ffmpeg` command-line arguments for every sing
     -   **Language Management**: Guesses 30+ languages from filenames (e.g. `dut.srt`) or supports manual setting via the `[L]` key.
     -   **Smart Matching**: Automatically detects existing conversions and restores your previous track selections.
 -   **Preview Capabilities**: Listen to audio tracks directly from the TUI (macOS `afplay` integration) to confirm contents before keeping them.
+-   **Intelligent Output Management**:
+    -   **Three Output Modes**: Choose between `[O]verwrite` (atomic in-place replacement), `[L]ocal` (save `converted_*` to CWD), or `[R]emote` (save `converted_*` next to source files).
+    -   **Smart Batch Output**: Batch conversions automatically create a `converted_<directory>/` folder with original filenames preserved, instead of prefixing every file.
+    -   **NAS-Safe Atomic Swaps**: Overwrites are safely processed in a hidden `.trackremux_staging/` directory and shifted via instantaneous atomic swaps to avoid media server race conditions, keeping original files safely in `.trackremux_trash/` for recovery.
+    -   **Read-Only Detection**: Automatically warns when the source filesystem is read-only, preventing failed Overwrite/Remote saves.
+-   **Audio Conditioning (DTS → AC3)**:
+    -   Automatically convert incompatible high-bitrate audio formats (DTS, DTS-HD, TrueHD) down to universally compatible `AC3 640k` via a hotkey `[C]` toggle to ensure Direct Play on all devices (e.g. LG WebOS TVs).
+    -   Features a dynamic `DTS>AC3` badge directly inside the Explorer file list tracking conditionally encoded native AC3 streams.
+    -   Added `[F]` hotkey to explicitly filter media list views exclusively to files with DTS-encoded formats.
+-   **Smart Configurations & Profiles**:
+    -   Build and utilize default setting profiles (`keep_langs`, `discard_langs`, `ac3` preference overrides).
+    -   Interactive profile editor overlay via `[P]` — Enter to edit fields, cursor navigation, Enter to confirm and auto-save, Escape to discard changes.
+    -   Profiles can be intelligently evaluated and interactively applied with `[A]` across matches to dramatically accelerate repetitive multi-file adjustments.
 -   **Safe Conversion**:
     -   Uses `ffmpeg` for robust processing.
-    -   Non-destructive: Creates new files (`converted_filename`) by default.
+    -   Identifies edited assets automatically tracking changes reliably even across format shifts with its own `.mkv` metadata tag system: `trackremux_id`.
     -   Real-time progress bar and size estimation.
 
 ## 📸 Visual Walkthrough
@@ -156,13 +169,15 @@ trackremux "My Movie.mkv"
 | **Esc / Q** | Back to Explorer |
 
 ## 🗺️ Roadmap
-*(Complexity: 🟢 Low, 🟡 Medium, 🔴 High)*
-*(Priority: 🔥 High, ⚡ Medium, 🧊 Low)*
 
-- [x] 🟠 ⚡ **Batch Processing**: ✅ **Completed in v0.6.0** - Automatic detection and sequential processing of TV series
-- [ ] 🔴 🧊 **Modern TUI**: Consider migrating to `Textual` for better UI/UX and cross-terminal compatibility.
-- [ ] 🟡 🔥 **Custom Rules**: Auto-selection of tracks based on preferred languages.
-- [ ] 🔴 🧊 **Multi-Language Streams**: Support for `mul` / dual-audio tracks (complex mapping).
+See [ROADMAP.md](ROADMAP.md) for the full feature roadmap. Highlights:
+
+- ✅ **Batch Processing** — Completed in v0.6.0
+- ✅ **In-Place Saving** — Overwrite / Local / Remote output modes — Completed in v0.7.0
+- ✅ **Audio Conditioning** — Flatten DTS-HD / TrueHD to AC3 for universal playback — Completed in v0.7.0
+- ✅ **Smart Defaults** — Auto-select tracks based on language config profiles — Completed in v0.7.0
+- ⚡ **Track Metadata** — Edit titles, set default/forced disposition flags
+- 🧊 **Dry Run / Export** — Generate `.sh` scripts for remote NAS execution
 
 ## 📝 License
 

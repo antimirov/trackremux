@@ -1,5 +1,12 @@
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import List, Optional
+
+
+class OutputMode(Enum):
+    LOCAL = "local"        # Save to CWD as converted_*.mkv (legacy)
+    REMOTE = "remote"     # Save converted_* next to the source file
+    OVERWRITE = "overwrite"  # Atomic in-place replacement of source
 
 
 @dataclass

@@ -1,6 +1,6 @@
 [project]
 name = "trackremux"
-version = "0.6.0"
+version = "0.7.0"
 description = "A powerful TUI tool to interactively select and remux audio/subtitle tracks from video files"
 authors = [{ name = "Yevgen Antymyrov", email = "me@antimirov.net" }]
 readme = "README.md"
@@ -22,6 +22,9 @@ package = true
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["trackremux*"]
 
 [dependency-groups]
 dev = [

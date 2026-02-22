@@ -3,13 +3,27 @@ import os
 import sys
 import time
 import traceback
+from dataclasses import dataclass, field
 
 from trackremux.core.preview import MediaPreview
 
+from ..core.config import AppConfig
+from ..core.models import OutputMode
 from ..core.scanner import GlobalScanner
 from .constants import APP_TIMEOUT_MS, KEY_CTRL_C
 from .editor import TrackEditor
 from .explorer import FileExplorer
+
+
+@dataclass
+class AppSettings:
+    """Mutable runtime settings shared across all views in the session."""
+    output_mode: OutputMode = OutputMode.LOCAL
+    convert_audio: bool = False
+    # Once the user picks an output mode once, skip the dialog for subsequent files
+    output_mode_chosen: bool = False
+    # Suppress [A] Apply profile hint after the user dismisses it once per session
+    profile_hint_dismissed: bool = False
 
 
 class TrackRemuxApp:
@@ -20,12 +34,20 @@ class TrackRemuxApp:
         self.current_view = None
         self.mouse_enabled = True
 
+        # Load persistent config and runtime settings
+        self.config = AppConfig.load()
+        self.settings = AppSettings()
+        # Seed convert_audio from saved preference
+        if self.config.prefer_ac3_over_dts:
+            self.settings.convert_audio = True
+
         # Initialize colors
         curses.start_color()
-        curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)
-        curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
-        curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
-        curses.init_pair(4, curses.COLOR_RED, curses.COLOR_BLACK)
+        curses.use_default_colors()
+        curses.init_pair(1, curses.COLOR_CYAN, -1)
+        curses.init_pair(2, curses.COLOR_GREEN, -1)
+        curses.init_pair(3, curses.COLOR_YELLOW, -1)
+        curses.init_pair(4, curses.COLOR_RED, -1)
         curses.init_pair(5, curses.COLOR_BLACK, curses.COLOR_CYAN)  # Highlight
 
         # Initialize Global Scanner
