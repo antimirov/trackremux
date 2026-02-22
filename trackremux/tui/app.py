@@ -18,6 +18,7 @@ from .explorer import FileExplorer
 @dataclass
 class AppSettings:
     """Mutable runtime settings shared across all views in the session."""
+
     output_mode: OutputMode = OutputMode.LOCAL
     convert_audio: bool = False
     # Once the user picks an output mode once, skip the dialog for subsequent files

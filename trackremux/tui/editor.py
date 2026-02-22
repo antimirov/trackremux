@@ -56,8 +56,8 @@ class TrackEditor:
         self.preview_scroll = 0
 
         # UI state flags for v0.7.0 overlays
-        self.showing_output_dialog = False   # Output mode selection [O/M/L]
-        self.showing_overwrite_warning = False # Collision prompt
+        self.showing_output_dialog = False  # Output mode selection [O/M/L]
+        self.showing_overwrite_warning = False  # Collision prompt
         self.showing_profile_overlay = False  # [P] Save profile overlay
         # Editable fields for profile overlay
         self._profile_keep = ", ".join(self.app.config.keep_langs)
@@ -73,7 +73,7 @@ class TrackEditor:
         base_name = os.path.splitext(self.media_file.filename)[0]
         source_dir = os.path.dirname(os.path.abspath(self.file_path))
         dir_name = os.path.basename(os.path.normpath(source_dir))
-        
+
         # Single-file output paths
         local_out = os.path.join(os.getcwd(), f"converted_{base_name}.mkv")
         remote_out = os.path.join(source_dir, f"converted_{base_name}.mkv")
@@ -84,7 +84,7 @@ class TrackEditor:
             f"converted_{dir_name}",
             f"{base_name}.mkv",
         )
-        
+
         self.output_name = local_out
         if os.path.exists(local_out):
             self.output_name = local_out
@@ -94,7 +94,7 @@ class TrackEditor:
             self.output_name = batch_local
         elif os.path.exists(batch_remote):
             self.output_name = batch_remote
-            
+
         self._scan_external_tracks()
         self._recognize_existing_output()
 
@@ -150,26 +150,26 @@ class TrackEditor:
         # Case insensitive check
         s1 = fname.lower()
         s2 = base.lower()
-        
+
         # Manually find length of common prefix
         length = 0
         min_len = min(len(s1), len(s2))
         while length < min_len and s1[length] == s2[length]:
             length += 1
-            
-        if length > 5: # Only strip if significant overlap
-             shortened = fname[length:]
-             # If starts with separator, strip it
-             if shortened and shortened[0] in (".", "_", "-"):
-                 shortened = shortened[1:]
-             
-             # If result is empty or just extension, keep it descriptive?
-             # e.g. "Movie.srt" -> "srt". Prefer "srt" or ".srt"
-             if not shortened:
-                 shortened = os.path.splitext(fname)[1]
-             
-             return shortened
-        
+
+        if length > 5:  # Only strip if significant overlap
+            shortened = fname[length:]
+            # If starts with separator, strip it
+            if shortened and shortened[0] in (".", "_", "-"):
+                shortened = shortened[1:]
+
+            # If result is empty or just extension, keep it descriptive?
+            # e.g. "Movie.srt" -> "srt". Prefer "srt" or ".srt"
+            if not shortened:
+                shortened = os.path.splitext(fname)[1]
+
+            return shortened
+
         # Fallback to standard truncation if no common prefix
         max_len = 30
         if len(fname) > max_len:
@@ -231,18 +231,18 @@ class TrackEditor:
 
                     # Case 1: Ext starts with Main
                     if fname_lower.startswith(base):
-                        rest = fname_lower[len(base):]
+                        rest = fname_lower[len(base) :]
                         if not rest or rest[0] in (".", "_", "-", " ", "[", "("):
                             matched = True
 
                     # Case 2: Main starts with Ext (only if Ext is reasonably long to avoid "The.srt" matching "The Matrix.mkv")
                     # We must compare stems, not full filename with extension
                     stem_lower = os.path.splitext(f)[0].lower()
-                    
+
                     if not matched and base.startswith(stem_lower):
                         # Ensure Ext is not too short (e.g. at least 3 chars)
                         if len(stem_lower) >= 3:
-                            rest = base[len(stem_lower):]
+                            rest = base[len(stem_lower) :]
                             if not rest or rest[0] in (".", "_", "-", " ", "[", "("):
                                 matched = True
 
@@ -308,22 +308,29 @@ class TrackEditor:
                                 src.enabled = True
                                 matched_indices.append(src.index)
                                 # Detect if this track was transcoded from DTS to AC3 to auto-enable the UI toggle
-                                if src.codec_type == "audio" and src.codec_name.lower() in MediaConverter.DTS_CODECS and ex.codec_name.lower() == "ac3":
+                                if (
+                                    src.codec_type == "audio"
+                                    and src.codec_name.lower() in MediaConverter.DTS_CODECS
+                                    and ex.codec_name.lower() == "ac3"
+                                ):
                                     self.app.settings.convert_audio = True
                                 break
                         continue  # Move to next output track
                     except ValueError:
                         pass
-                
+
                 # 2. Fallback heuristic match for older converted files without the tag
                 for src in source_tracks:
                     if src.index in matched_indices:
                         continue
 
                     # Determine if codecs match (allowing for DTS->AC3 converted audio)
-                    codec_match = (src.codec_name == ex.codec_name)
+                    codec_match = src.codec_name == ex.codec_name
                     if not codec_match and src.codec_type == "audio" and ex.codec_type == "audio":
-                        if src.codec_name.lower() in MediaConverter.DTS_CODECS and ex.codec_name.lower() == "ac3":
+                        if (
+                            src.codec_name.lower() in MediaConverter.DTS_CODECS
+                            and ex.codec_name.lower() == "ac3"
+                        ):
                             codec_match = True
 
                     # Basic matching: type, language, codec
@@ -339,11 +346,15 @@ class TrackEditor:
 
                         src.enabled = True
                         matched_indices.append(src.index)
-                        
+
                         # Detect if this track was transcoded from DTS to AC3 to auto-enable the UI toggle
-                        if src.codec_type == "audio" and src.codec_name.lower() in MediaConverter.DTS_CODECS and ex.codec_name.lower() == "ac3":
+                        if (
+                            src.codec_type == "audio"
+                            and src.codec_name.lower() in MediaConverter.DTS_CODECS
+                            and ex.codec_name.lower() == "ac3"
+                        ):
                             self.app.settings.convert_audio = True
-                            
+
                         break
 
             size_str = format_size(os.path.getsize(self.output_name) / 1024 / 1024)
@@ -367,8 +378,6 @@ class TrackEditor:
         # Header
         self.app.stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
         self.app.stdscr.addstr(0, 0, " " * width)  # Clear the line
-
-
 
         if self.batch_group:
             label = " BATCH EDITING: "
@@ -399,7 +408,9 @@ class TrackEditor:
 
         est_size_mb = MediaConverter.estimate_output_size(self.media_file) / 1024 / 1024
         mode_tag = f"[{mode.value.upper()}] "
-        target_info = f" Output: {mode_tag}{output_name} | Est. file size: {format_size(est_size_mb)}"
+        target_info = (
+            f" Output: {mode_tag}{output_name} | Est. file size: {format_size(est_size_mb)}"
+        )
 
         if existing_exists:
             actual_size_mb = os.path.getsize(output_name) / 1024 / 1024
@@ -453,16 +464,20 @@ class TrackEditor:
             # Truncate source tag if too long?
             # Max width logic?
             # For now, let it be.
-            
+
             display_info = track.display_info
             # Give visual feedback if the track is scheduled for DTS>AC3 transcoding
             if (
-                self.app.settings.convert_audio 
-                and track.enabled 
-                and track.codec_type == "audio" 
+                self.app.settings.convert_audio
+                and track.enabled
+                and track.codec_type == "audio"
                 and track.codec_name.lower() in MediaConverter.DTS_CODECS
             ):
-                display_info = display_info.replace("DTS", "DTS>AC3").replace("DTS-HD", "DTS-HD>AC3").replace("TRUEHD", "TRUEHD>AC3")
+                display_info = (
+                    display_info.replace("DTS", "DTS>AC3")
+                    .replace("DTS-HD", "DTS-HD>AC3")
+                    .replace("TRUEHD", "TRUEHD>AC3")
+                )
 
             line = f"{prefix}{check} Stream #{track.index}: {track.codec_type.upper():<10} {track_size_str:>11}{source_tag} | {display_info}"
 
@@ -494,7 +509,7 @@ class TrackEditor:
         # Footer
         mouse_status = "APP" if self.app.mouse_enabled else "TERM"
         audio_tag = "DTS>AC3:On" if self.app.settings.convert_audio else "DTS>AC3:Off"
-        
+
         if width < 110:
             footer = (
                 f" [SPC] Tgl | [ENT] Play | [L] Lang | [S+↑/↓] Move"
@@ -505,7 +520,7 @@ class TrackEditor:
                 f" [SPACE] Toggle | [ENTER] Play | [L] Lang | [Shift+↑/↓] Reorder"
                 f" | [C] {audio_tag} | [S] Save | [P] Profile | [M] Mouse:{mouse_status} | [Q/ESC] Back "
             )
-            
+
         self.app.stdscr.addstr(
             height - 1, 0, footer.center(width)[: width - 1], curses.color_pair(3)
         )
@@ -513,7 +528,7 @@ class TrackEditor:
         # Output Mode Dialog Overlay
         if self.showing_output_dialog:
             self._draw_output_dialog(height, width)
-            
+
         # Overwrite Warning Dialog Overlay
         if self.showing_overwrite_warning:
             self._draw_overwrite_warning_dialog(height, width)
@@ -538,8 +553,6 @@ class TrackEditor:
 
             opts = " [S]ave & Start   [Y] Save & Back   [N] Discard "
             self.app.stdscr.addstr(my + 4, mx + (mw - len(opts)) // 2, opts, curses.color_pair(5))
-            
-
 
         self.app.stdscr.refresh()
 
@@ -549,15 +562,17 @@ class TrackEditor:
             mh = min(30, height - 4)
             my = (height - mh) // 2
             mx = (width - mw) // 2
-            
+
             # Draw box
             for r in range(mh):
                 self.app.stdscr.addstr(my + r, mx, " " * mw, curses.color_pair(3))
-            
+
             # Header
             title = " Subtitle Preview (First 2000 lines) "
-            self.app.stdscr.addstr(my, mx + (mw - len(title))//2, title, curses.color_pair(3) | curses.A_BOLD)
-            
+            self.app.stdscr.addstr(
+                my, mx + (mw - len(title)) // 2, title, curses.color_pair(3) | curses.A_BOLD
+            )
+
             # Content
             content_h = mh - 2
             for i in range(content_h):
@@ -566,12 +581,14 @@ class TrackEditor:
                     line = self.preview_lines[line_idx]
                     # truncation
                     if len(line) > mw - 2:
-                        line = line[:mw-5] + "..."
+                        line = line[: mw - 5] + "..."
                     self.app.stdscr.addstr(my + 1 + i, mx + 2, line, curses.color_pair(3))
-            
+
             # Footer
             footer = " [UP/DOWN] Scroll | [ESC/ENTER] Close "
-            self.app.stdscr.addstr(my + mh - 1, mx + (mw - len(footer))//2, footer, curses.color_pair(3))
+            self.app.stdscr.addstr(
+                my + mh - 1, mx + (mw - len(footer)) // 2, footer, curses.color_pair(3)
+            )
 
     def handle_input(self, key):
         height, width = self.app.stdscr.getmaxyx()
@@ -586,11 +603,13 @@ class TrackEditor:
                     self.preview_scroll -= 1
             elif key == curses.KEY_DOWN:
                 if self.preview_scroll < len(self.preview_lines) - 1:
-                     self.preview_scroll += 1
+                    self.preview_scroll += 1
             elif key == curses.KEY_PPAGE:
                 self.preview_scroll = max(0, self.preview_scroll - 10)
             elif key == curses.KEY_NPAGE:
-                self.preview_scroll = max(0, min(len(self.preview_lines) - 1, self.preview_scroll + 10))
+                self.preview_scroll = max(
+                    0, min(len(self.preview_lines) - 1, self.preview_scroll + 10)
+                )
             return
 
         # Overlay dispatch: output mode dialog
@@ -707,8 +726,6 @@ class TrackEditor:
             try:
                 _, mx, my, _, _ = curses.getmouse()
 
-
-
                 row_in_list = my - TRACK_LIST_Y_OFFSET
                 list_height = height - TRACK_EDITOR_INFO_HEIGHT
                 if 0 <= row_in_list < list_height:
@@ -725,13 +742,13 @@ class TrackEditor:
                                 self.status_message = " Video tracks cannot be disabled. "
                         else:
                             self.selected_idx = target_idx
-                
+
                 # Footer buttons (row is height - 1)
                 if my == height - 1:
                     # Build footer to find click zones
                     mouse_status = "APP" if self.app.mouse_enabled else "TERM"
                     audio_tag = "AC3:On" if self.app.settings.convert_audio else "AC3:Off"
-                    
+
                     if width < 110:
                         footer = (
                             f" [SPC] Tgl | [ENT] Play | [L] Lang | [S+↑/↓] Move"
@@ -742,25 +759,25 @@ class TrackEditor:
                             f" [SPACE] Toggle | [ENTER] Play | [L] Lang | [Shift+↑/↓] Reorder"
                             f" | [C] Audio:{audio_tag} | [S] Save | [P] Profile | [M] Mouse:{mouse_status} | [Q/ESC] Back "
                         )
-                    
+
                     # Center the footer
                     footer_start = (width - len(footer)) // 2
                     rel_x = mx - footer_start
-                    
+
                     # Use dynamic position detection for all buttons
                     def find_button(text):
                         idx = footer.find(text)
                         if idx != -1:
                             return idx, idx + len(text)
                         return None, None
-                        
+
                     # Check for Shift+↑/↓ or S+↑/↓ reorder buttons
                     shift_arrows = footer.find("[Shift+↑/↓]")
                     arrow_up, arrow_down = 7, 9
                     if shift_arrows == -1:
                         shift_arrows = footer.find("[S+↑/↓]")
                         arrow_up, arrow_down = 3, 5
-                        
+
                     if shift_arrows != -1:
                         if shift_arrows + arrow_up <= rel_x <= shift_arrows + arrow_up + 1:
                             self.handle_input(curses.KEY_SR)  # Shift+Up
@@ -768,7 +785,7 @@ class TrackEditor:
                         elif shift_arrows + arrow_down <= rel_x <= shift_arrows + arrow_down + 1:
                             self.handle_input(curses.KEY_SF)  # Shift+Down
                             return
-                    
+
                     # Check other buttons
                     buttons = [
                         ("[SPACE]", KEY_SPACE),
@@ -783,7 +800,7 @@ class TrackEditor:
                         ("[Q/ESC]", KEY_Q_LOWER),
                         ("[Q]", KEY_Q_LOWER),
                     ]
-                    
+
                     for button_text, key_code in buttons:
                         start, end = find_button(button_text)
                         if start is not None and start <= rel_x <= end:
@@ -893,6 +910,7 @@ class TrackEditor:
         self.commit_changes()
         if self.batch_group:
             from .batch_progress import BatchProgressView
+
             self.app.switch_view(
                 BatchProgressView(
                     self.app,
@@ -904,8 +922,9 @@ class TrackEditor:
                 )
             )
             return
-            
+
         from .progress import ProgressView
+
         self.app.switch_view(
             ProgressView(
                 self.app,
@@ -927,7 +946,9 @@ class TrackEditor:
         # Compute preview paths per mode
         if is_batch:
             local_preview = f"./converted_{dir_name}/"
-            remote_preview = f"…/{os.path.basename(os.path.dirname(source_dir))}/converted_{dir_name}/"
+            remote_preview = (
+                f"…/{os.path.basename(os.path.dirname(source_dir))}/converted_{dir_name}/"
+            )
             file_count = f" ({self.batch_group.count} files)"
         else:
             local_preview = f"./converted_{base_name}.mkv"
@@ -967,15 +988,15 @@ class TrackEditor:
         title = "─" * (mw - 2)
         title_text = " Save As "
         tp = (len(title) - len(title_text)) // 2
-        title = title[:tp] + title_text + title[tp + len(title_text):]
-        self.app.stdscr.addstr(my, mx + 1, title[:mw-2], curses.color_pair(3) | curses.A_BOLD)
+        title = title[:tp] + title_text + title[tp + len(title_text) :]
+        self.app.stdscr.addstr(my, mx + 1, title[: mw - 2], curses.color_pair(3) | curses.A_BOLD)
         for i, ln in enumerate(lines):
             attr = curses.color_pair(3)
             if "⚠" in ln:
                 attr = curses.color_pair(4)
             elif ln.strip().startswith("→"):
                 attr = curses.A_DIM
-            self.app.stdscr.addstr(my + 2 + i, mx, ln[: mw], attr)
+            self.app.stdscr.addstr(my + 2 + i, mx, ln[:mw], attr)
 
     def _handle_output_dialog(self, key):
         """Handle keypresses inside the output mode dialog."""
@@ -988,12 +1009,12 @@ class TrackEditor:
                 self.status_message = " ⚠ Cannot overwrite: source filesystem is read-only! "
                 self.showing_output_dialog = False
                 return
-            
+
             # Check for existing outputs that might cause confusion
             source_dir = os.path.dirname(os.path.abspath(self.media_file.path))
             dir_name = os.path.basename(os.path.normpath(source_dir))
             base_name = os.path.splitext(self.media_file.filename)[0]
-            
+
             # Single-file residuals
             local_out = os.path.join(self.app.start_path, "converted_" + self.media_file.filename)
             remote_out = os.path.join(source_dir, "converted_" + self.media_file.filename)
@@ -1004,7 +1025,7 @@ class TrackEditor:
                 f"converted_{dir_name}",
                 f"{base_name}.mkv",
             )
-            
+
             self.residual_file_to_delete = None
             if os.path.exists(local_out):
                 self.residual_file_to_delete = local_out
@@ -1014,7 +1035,7 @@ class TrackEditor:
                 self.residual_file_to_delete = batch_local
             elif os.path.exists(batch_remote):
                 self.residual_file_to_delete = batch_remote
-                
+
             if self.residual_file_to_delete:
                 self.showing_output_dialog = False
                 self.showing_overwrite_warning = True
@@ -1046,11 +1067,11 @@ class TrackEditor:
         my = (height - mh) // 2
         mx = (width - mw) // 2
         for r in range(mh):
-            self.app.stdscr.addstr(my + r, mx, " " * mw, curses.color_pair(4)) # Red Background
-            
+            self.app.stdscr.addstr(my + r, mx, " " * mw, curses.color_pair(4))  # Red Background
+
         title = "─── Residual Output Found ───────────────────────────────────"
         self.app.stdscr.addstr(my, mx + 1, title, curses.color_pair(4) | curses.A_BOLD)
-        
+
         filename = os.path.basename(self.residual_file_to_delete)
         # Using [O]rphan format to clarify it's an orphaned file
         lines = [
@@ -1058,12 +1079,12 @@ class TrackEditor:
             f"  > {filename}",
             "  Delete this residual file to prevent workspace confusion?",
             "",
-            "  [Y] Yes, Delete it | [N] No, Keep it | [ESC] Cancel"
+            "  [Y] Yes, Delete it | [N] No, Keep it | [ESC] Cancel",
         ]
-        
+
         for i, ln in enumerate(lines):
-            self.app.stdscr.addstr(my + 2 + i, mx, ln[: mw], curses.color_pair(4) | curses.A_BOLD)
-            
+            self.app.stdscr.addstr(my + 2 + i, mx, ln[:mw], curses.color_pair(4) | curses.A_BOLD)
+
     def _handle_overwrite_warning_dialog(self, key):
         """Handle keypresses inside the overwrite residual warning dialog."""
         if key in (KEY_ESC, ord("c"), ord("C")):
@@ -1076,8 +1097,8 @@ class TrackEditor:
                 if os.path.exists(self.residual_file_to_delete):
                     os.remove(self.residual_file_to_delete)
             except Exception as e:
-                pass # Non-fatal if we can't delete it
-            
+                pass  # Non-fatal if we can't delete it
+
             self.showing_overwrite_warning = False
             self.app.settings.output_mode = OutputMode.OVERWRITE
             self.app.settings.output_mode_chosen = True
@@ -1098,11 +1119,13 @@ class TrackEditor:
         for r in range(mh):
             self.app.stdscr.addstr(my + r, mx, " " * mw, curses.color_pair(3))
         title = "─── Save Default Profile ──────────────────────────"
-        self.app.stdscr.addstr(my, mx + 1, title[:mw-2], curses.color_pair(3) | curses.A_BOLD)
+        self.app.stdscr.addstr(my, mx + 1, title[: mw - 2], curses.color_pair(3) | curses.A_BOLD)
 
         # Save confirmation message (right under title)
         if self._profile_save_msg:
-            self.app.stdscr.addstr(my + 1, mx + 2, self._profile_save_msg[:mw-4], curses.color_pair(5))
+            self.app.stdscr.addstr(
+                my + 1, mx + 2, self._profile_save_msg[: mw - 4], curses.color_pair(5)
+            )
 
         label_w = 24
         val_w = mw - label_w - 4
@@ -1129,9 +1152,16 @@ class TrackEditor:
                 self.app.stdscr.addstr(row_y, val_x, before[:val_w], attr)
                 if cursor_pos < val_w:
                     cursor_ch = after[0] if after else " "
-                    self.app.stdscr.addstr(row_y, val_x + len(before), cursor_ch, attr | curses.A_REVERSE)
+                    self.app.stdscr.addstr(
+                        row_y, val_x + len(before), cursor_ch, attr | curses.A_REVERSE
+                    )
                     if after[1:]:
-                        self.app.stdscr.addstr(row_y, val_x + len(before) + 1, after[1:][:val_w - cursor_pos - 1], attr)
+                        self.app.stdscr.addstr(
+                            row_y,
+                            val_x + len(before) + 1,
+                            after[1:][: val_w - cursor_pos - 1],
+                            attr,
+                        )
             else:
                 self.app.stdscr.addstr(row_y, mx + 2 + label_w, val[:val_w], attr)
 
@@ -1142,10 +1172,10 @@ class TrackEditor:
             ctx = "  [ENTER] Edit (comma-separated, e.g. eng, fra)"
         else:
             ctx = "  [ENTER/SPACE] Toggle"
-        self.app.stdscr.addstr(my + 7, mx, ctx[: mw], curses.A_DIM)
+        self.app.stdscr.addstr(my + 7, mx, ctx[:mw], curses.A_DIM)
 
         hint = "  [TAB/↑↓] Navigate | [ESC] Close"
-        self.app.stdscr.addstr(my + mh - 2, mx, hint[: mw], curses.color_pair(3))
+        self.app.stdscr.addstr(my + mh - 2, mx, hint[:mw], curses.color_pair(3))
 
     def _profile_get_text(self):
         """Return the current text field value for the active profile field."""
@@ -1160,15 +1190,14 @@ class TrackEditor:
 
     def _profile_save(self):
         """Save the current profile state to config."""
-        self.app.config.keep_langs = [
-            s.strip() for s in self._profile_keep.split(",") if s.strip()
-        ]
+        self.app.config.keep_langs = [s.strip() for s in self._profile_keep.split(",") if s.strip()]
         self.app.config.discard_langs = [
             s.strip() for s in self._profile_discard.split(",") if s.strip()
         ]
         self.app.config.prefer_ac3_over_dts = self._profile_prefer_ac3
         self.app.config.save()
         from ..core.config import CONFIG_PATH
+
         display_path = CONFIG_PATH.replace(os.path.expanduser("~"), "~")
         self._profile_save_msg = f"✓ Saved to {display_path}"
 
@@ -1200,11 +1229,11 @@ class TrackEditor:
                     self._profile_cursor = len(text)
                 elif key in (curses.KEY_BACKSPACE, 127, 8):
                     if pos > 0:
-                        self._profile_set_text(text[:pos-1] + text[pos:])
+                        self._profile_set_text(text[: pos - 1] + text[pos:])
                         self._profile_cursor = pos - 1
                 elif key == curses.KEY_DC:
                     if pos < len(text):
-                        self._profile_set_text(text[:pos] + text[pos+1:])
+                        self._profile_set_text(text[:pos] + text[pos + 1 :])
                 elif 32 <= key <= 126:
                     ch = chr(key)
                     self._profile_set_text(text[:pos] + ch + text[pos:])
@@ -1270,8 +1299,6 @@ class TrackEditor:
         else:
             self.status_message = " Invalid language code or cancelled. "
 
-
-
     def _show_subtitle_preview(self, path):
         """Reads the first few lines of a subtitle file and enables preview mode."""
         try:
@@ -1282,7 +1309,7 @@ class TrackEditor:
                 if b"\0" in content:
                     self.status_message = " Cannot preview binary file. "
                     return
-                
+
                 # Decode
                 text = ""
                 try:
@@ -1292,12 +1319,12 @@ class TrackEditor:
                         text = content.decode("latin-1")
                     except:
                         pass
-                
+
                 if not text:
                     self.status_message = " Empty or unreadable file. "
                     return
 
-                self.preview_lines = text.splitlines()[:2000] # Limit to 2000 lines
+                self.preview_lines = text.splitlines()[:2000]  # Limit to 2000 lines
                 self.previewing_subs = True
                 self.preview_scroll = 0
                 self.status_message = f" Previewing {os.path.basename(path)} "
@@ -1308,15 +1335,15 @@ class TrackEditor:
     def _play_current_track(self):
         height, width = self.app.stdscr.getmaxyx()
         track = self.media_file.tracks[self.selected_idx]
-        
+
         # New: Subtitle Preview
         if track.codec_type == "subtitle":
             if track.source_path:
                 self._show_subtitle_preview(track.source_path)
             else:
-                 # Internal subtitle? Can't easy preview without extraction.
-                 # Internal subtitle preview not supported strictly yet.
-                 self.status_message = " Preview not supported for internal subtitles yet. "
+                # Internal subtitle? Can't easy preview without extraction.
+                # Internal subtitle preview not supported strictly yet.
+                self.status_message = " Preview not supported for internal subtitles yet. "
             return
 
         if track.codec_type != "audio":
@@ -1336,7 +1363,7 @@ class TrackEditor:
             if t == track:
                 break
             # MediaPreview.extract_snippet uses ffmpeg -map 0:{codec}:{index}.
-            # We must calculate the relative index of this track among all tracks 
+            # We must calculate the relative index of this track among all tracks
             # of the same type within the same source file.
 
             if t.source_path == track.source_path and t.codec_type == track.codec_type:

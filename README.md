@@ -150,11 +150,12 @@ trackremux "My Movie.mkv"
 | **PgUp / PgDn** | Scroll pages |
 | **Enter** | Open selected file in Editor |
 | **B** | Open Batch Selector (when batches detected) |
+| **D** | Cycle filter: All → DTS only → DTS>AC3 only |
 | **M** | Toggle Mouse Support |
-| **Q** | Quit Application |
-| **R** | **Force Re-scan** current directory |
-| **Ctrl+C** | **Force Quit** instantly |
+| **R** | Force re-scan current directory |
 | **N / S / T / A** | Sort by **N**ame, **S**ize, **T**racks, **A**udio Size |
+| **Q / Esc** | Quit Application |
+| **Ctrl+C** | Force Quit instantly |
 
 ### Track Editor
 | Key | Action |
@@ -164,8 +165,11 @@ trackremux "My Movie.mkv"
 | **← / →** | Seek in preview |
 | **↑ / ↓** | Navigate Tracks |
 | **Shift+↑ / ↓** | Move selected track UP / DOWN |
-| **L** | **Set Language** (Manual edit) |
-| **S** | **Start Conversion** / Save changes |
+| **L** | Set Language (manual edit) |
+| **C** | Toggle DTS → AC3 audio conditioning |
+| **P** | Open Profile editor (keep/discard languages, AC3 preference) |
+| **A** | Apply saved profile to current file |
+| **S** | Save — opens output mode dialog (`[O]`verwrite / `[L]`ocal / `[R]`emote) |
 | **Esc / Q** | Back to Explorer |
 
 ## 🗺️ Roadmap

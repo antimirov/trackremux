@@ -71,21 +71,23 @@ class MediaConverter:
             elif track.codec_type == "audio":
                 if track.language:
                     cmd.extend([f"-metadata:s:a:{audio_idx}", f"language={track.language}"])
-                
+
                 # Handling DTS to AC3 conversion metadata
                 if convert_audio and track.codec_name.lower() in MediaConverter.DTS_CODECS:
                     dts_audio_indices.append(audio_idx)
-                    
+
                     # Rewrite the title if it contains DTS
                     title = track.tags.get("title", "")
                     if title:
                         # Replace 'DTS' / 'DTS-HD' with 'AC3'
-                        new_title = re.sub(r'(?i)\bdts(?:-hd)?\b', 'AC3', title)
+                        new_title = re.sub(r"(?i)\bdts(?:-hd)?\b", "AC3", title)
                         # Replace typical bitrates like '1536 kbps' or '768 kbps' with '640 kbps'
-                        new_title = re.sub(r'\b(?:1536|768)\s*kbps\b', '640 kbps', new_title, flags=re.IGNORECASE)
-                        
+                        new_title = re.sub(
+                            r"\b(?:1536|768)\s*kbps\b", "640 kbps", new_title, flags=re.IGNORECASE
+                        )
+
                         cmd.extend([f"-metadata:s:a:{audio_idx}", f"title={new_title}"])
-                    
+
                 elif "title" in track.tags:
                     # Pass through original title if not modifying audio
                     cmd.extend([f"-metadata:s:a:{audio_idx}", f"title={track.tags['title']}"])
@@ -107,7 +109,6 @@ class MediaConverter:
         cmd.append(output_path)
 
         return cmd
-
 
     @staticmethod
     def estimate_output_size(media_file: MediaFile) -> int:
@@ -136,11 +137,15 @@ class MediaConverter:
         return max(0, total_size - disabled_size)
 
     @staticmethod
-    def convert(media_file: MediaFile, output_path: str, convert_audio: bool = False, progress_callback=None):
+    def convert(
+        media_file: MediaFile, output_path: str, convert_audio: bool = False, progress_callback=None
+    ):
         """
         Executes the conversion. Returns the process object so it can be managed.
         """
-        cmd = MediaConverter.build_ffmpeg_command(media_file, output_path, convert_audio=convert_audio)
+        cmd = MediaConverter.build_ffmpeg_command(
+            media_file, output_path, convert_audio=convert_audio
+        )
         cmd.insert(1, "-progress")
         cmd.insert(2, "-")
 
@@ -156,4 +161,3 @@ class MediaConverter:
             bufsize=1,  # Line buffered
         )
         return process
-

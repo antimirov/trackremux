@@ -90,61 +90,61 @@ class FileExplorer:
         """
         if len(path) <= max_len:
             return path
-        
+
         parts = path.split(os.sep)
         # Handle root slash for absolute paths
         if path.startswith(os.sep):
-            parts = [p for p in parts if p] # remove empty strings
+            parts = [p for p in parts if p]  # remove empty strings
             prefix = os.sep
         else:
             prefix = ""
-            
+
         if not parts:
-             return path
-             
+            return path
+
         # Always keep the last part full (current dir)
         last = parts[-1]
-        
+
         # Iteratively shorten leading parts
         shortened_parts = []
         # We need to preserve space for the last part
         # If last part alone is too big, we just truncate the whole thing later
-        
-        current_len = len(prefix) + len(last) + len(parts) - 1 # separators
-        
+
+        current_len = len(prefix) + len(last) + len(parts) - 1  # separators
+
         for i, part in enumerate(parts[:-1]):
             # Try to shorten this part to 1 char
             shortened_parts.append(part[0] if part else "")
-            
+
         # Reconstruct
-        # This is a naive 'shorten all' approach. 
+        # This is a naive 'shorten all' approach.
         # Better: Shorten from left until it fits.
-        
+
         # Attempt to fit smartly by shrinking parts.
-        candidates = list(parts[:-1]) # copy
-        
+        candidates = list(parts[:-1])  # copy
+
         # Calculate current full length
         # len(prefix) + sum(len(p) for p in candidates) + len(last) + len(candidates) (separators)
-        
+
         def get_len(cands):
             return len(prefix) + sum(len(c) for c in cands) + len(last) + len(cands)
-            
+
         # Loop and shorten from left
         for i in range(len(candidates)):
-             if get_len(candidates) <= max_len:
-                 break
-             # Shorten candidates[i]
-             if candidates[i]:
-                 candidates[i] = candidates[i][0]
-        
+            if get_len(candidates) <= max_len:
+                break
+            # Shorten candidates[i]
+            if candidates[i]:
+                candidates[i] = candidates[i][0]
+
         result = prefix + os.sep.join(candidates + [last])
-        
+
         # If still too long, truncate the middle of the result? or just the end?
         if len(result) > max_len:
             # Truncate end of last part if possible, or ellipsify
-             if len(result) > max_len:
-                 return result[:max_len-3] + "..."
-        
+            if len(result) > max_len:
+                return result[: max_len - 3] + "..."
+
         return result
 
     def _async_load(self):
@@ -342,7 +342,8 @@ class FileExplorer:
             # DTS filter: drop files that have no DTS audio track (only when filter on)
             if self.dts_filter:
                 files = [
-                    f for f in files
+                    f
+                    for f in files
                     if f in self.metadata
                     and getattr(self.metadata[f], "probed", False)
                     and any(
@@ -363,45 +364,43 @@ class FileExplorer:
         self.app.stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
         self.app.stdscr.addstr(0, 0, " " * width)  # Clear the line
 
-
-
         label = "Media Browser: "
-        
+
         # Calculate available width for path
         # Width - Label - Right Area (Sort + Batch + Padding + Scanning Progress estimate)
         # Scan progress is roughly 35 chars: " Scanning: [##########] 9999/9999 "
         # Sort block is roughly 30 chars.
         # Header [X] is 4 chars.
         # Batch is variable but usually ~20 chars.
-        
+
         # Maximize path width, but stop before overlapping.
-        
+
         # Re-calculate right-side content first to know space?
         # Sort area x
         sort_label = self.sort_mode.replace("_", " ").title()
         dir_arrow = "↓" if self.sort_reverse else "↑"
         sort_text = f" [ Sorted by: {sort_label} {dir_arrow} ] "
         sort_x = width - len(sort_text)
-        
+
         left_limit = sort_x
-        
+
         if self.batches:
             batch_text = f" [B]ATCH: {len(self.batches)} groups "
             batch_x = sort_x - len(batch_text) - 2
             left_limit = batch_x
-            
+
         # Also account for "Scanning..." text which comes AFTER the path.
         # If we render path, we implicitly push scanning text to the right.
         # But we want scanning text to be visible.
         # So: Path + Scanning should <= Left Limit.
-        
-        scanning_width = 35 # Reserve space for scanning status
-        
+
+        scanning_width = 35  # Reserve space for scanning status
+
         max_path_width = max(10, left_limit - len(label) - scanning_width - 2)
-        
+
         # Shorten path
         path_str = self._shorten_path(self.path, max_path_width) + " "
-        
+
         start_x = 0
         self.app.stdscr.addstr(0, start_x, label, curses.color_pair(1) | curses.A_BOLD)
         self.app.stdscr.addstr(0, start_x + len(label), path_str, curses.A_DIM)
@@ -442,9 +441,7 @@ class FileExplorer:
         sort_text = f" [ Sorted by: {sort_label} {dir_arrow} ] "
         sort_x = width - len(sort_text)
         if width > len(sort_text):  # Ensure it fits
-            self.app.stdscr.addstr(
-                0, sort_x, sort_text, curses.color_pair(3) | curses.A_BOLD
-            )
+            self.app.stdscr.addstr(0, sort_x, sort_text, curses.color_pair(3) | curses.A_BOLD)
 
         # Batch Indicator in Header (Positioned left of Sort)
         if self.batches:
@@ -452,15 +449,13 @@ class FileExplorer:
             batch_len = len(batch_text)
             # Position it left of sort_text with some padding
             batch_x = sort_x - batch_len - 2
-            
+
             # Ensure it doesn't overlap with left-side content (approx 40-50 chars usually)
             # But header_end tracks title + scan progress
             # scanning progress ends around header_end + 30?
             # Safe check: width > 80?
-            if batch_x > 20: 
-                self.app.stdscr.addstr(
-                    0, batch_x, batch_text, curses.color_pair(5) | curses.A_BOLD
-                )
+            if batch_x > 20:
+                self.app.stdscr.addstr(0, batch_x, batch_text, curses.color_pair(5) | curses.A_BOLD)
 
         # Column Headers
         # track_info (26) + space (1) + name + space (1) + lang (15) + space (2) + size (10)
@@ -555,25 +550,27 @@ class FileExplorer:
                     t.codec_type == "audio" and t.codec_name.lower() in MediaConverter.DTS_CODECS
                     for t in audio_tracks
                 )
-                
+
                 # Check for converted counterpart or temp status early for badge logic
                 is_converted = filename.startswith("converted_")
                 is_temp = filename.startswith("temp_")
-                
+
                 local_out = os.path.join(os.getcwd(), "converted_" + filename)
                 remote_out = os.path.join(self.path, "converted_" + filename)
-                
+
                 # Also check batch output directories:
                 # converted_<current_dir_name>/<filename> in CWD or parent dir
                 current_dir_name = os.path.basename(os.path.normpath(self.path))
                 base_name = os.path.splitext(filename)[0]
-                batch_local = os.path.join(os.getcwd(), f"converted_{current_dir_name}", f"{base_name}.mkv")
+                batch_local = os.path.join(
+                    os.getcwd(), f"converted_{current_dir_name}", f"{base_name}.mkv"
+                )
                 batch_remote = os.path.join(
                     os.path.dirname(os.path.normpath(self.path)),
                     f"converted_{current_dir_name}",
                     f"{base_name}.mkv",
                 )
-                
+
                 output_path = None
                 if os.path.exists(local_out):
                     output_path = local_out
@@ -583,13 +580,13 @@ class FileExplorer:
                     output_path = batch_local
                 elif os.path.exists(batch_remote):
                     output_path = batch_remote
-                
+
                 has_converted = output_path is not None
 
                 dts_tag = "    "
                 if has_dts and not self.dts_filter:
                     dts_tag = " DTS"
-                    
+
                     # If this file was already processed, peek into cache or probe it once
                     if has_converted:
                         if filename in self.dts_badge_cache:
@@ -598,41 +595,54 @@ class FileExplorer:
                         else:
                             # Not in cache, probe it asynchronously to prevent UI freeze
                             self.dts_badge_cache[filename] = False  # Default to false while probing
-                            
+
                             def _probe_badge(path=output_path, name=filename, tracks=audio_tracks):
                                 try:
-                                    from ..core.probe import MediaProbe
                                     from ..core.converter import MediaConverter
+                                    from ..core.probe import MediaProbe
+
                                     ex_media = MediaProbe.probe(path)
                                     is_t = False
                                     for ex_track in ex_media.tracks:
-                                        lower_tags = {k.lower(): v for k, v in ex_track.tags.items()}
-                                        if "trackremux_id" in lower_tags and ex_track.codec_type == "audio" and ex_track.codec_name.lower() == "ac3":
+                                        lower_tags = {
+                                            k.lower(): v for k, v in ex_track.tags.items()
+                                        }
+                                        if (
+                                            "trackremux_id" in lower_tags
+                                            and ex_track.codec_type == "audio"
+                                            and ex_track.codec_name.lower() == "ac3"
+                                        ):
                                             src_idx = int(lower_tags["trackremux_id"])
-                                            if any(t.index == src_idx and t.codec_name.lower() in MediaConverter.DTS_CODECS for t in tracks):
+                                            if any(
+                                                t.index == src_idx
+                                                and t.codec_name.lower()
+                                                in MediaConverter.DTS_CODECS
+                                                for t in tracks
+                                            ):
                                                 is_t = True
                                                 break
                                     if is_t:
                                         self.dts_badge_cache[name] = True
                                 except Exception:
                                     pass
-                                    
+
                             import threading
+
                             threading.Thread(target=_probe_badge, daemon=True).start()
-                            
+
                 # Format appropriately: DTS is 4 chars, DTS>AC3 is 7 chars.
                 f_dts_tag = dts_tag.ljust(7)
                 # Ensure the total size of track_info is exactly 26 characters
                 track_info = f"[{len(audio_tracks):>2} aud: {f_dts_tag} {a_size_str:>8} ]"
                 # Truncate and pad filename to exactly name_col_width
                 display_filename = get_display_name(filename, name_col_width).ljust(name_col_width)
-                
+
                 # Language column exactly 15 chars
                 lang_str = f"({langs[:13]})".ljust(15)
-                
+
                 # Size column exactly 10 chars
                 sz_str = f"{size_str:>10}"
-                
+
                 # Compose line with exact spacing
                 # 1(space) + 26(track) + 1(space) + name_col_width + 1(space) + 15(lang) + 2(space) + 10(size)
                 # Note: `track_info` is exactly 26 chars long due to `DTS>AC3` (7 chars) + strict padding
@@ -703,11 +713,9 @@ class FileExplorer:
         action_footer = f"[ENTER] Open | {batch_opt}[R]escan | [Q/ESC] {quit_label} "
 
         # Draw left-aligned sort section
-        left_text = sort_footer[:width - 1]
-        self.app.stdscr.addstr(
-            height - 1, 0, left_text, curses.color_pair(3)
-        )
-        
+        left_text = sort_footer[: width - 1]
+        self.app.stdscr.addstr(height - 1, 0, left_text, curses.color_pair(3))
+
         # Draw right-aligned action section
         right_text = f" {mouse_footer} | {action_footer}"
         # Ensure we don't exceed screen width and leave room for last column
@@ -717,9 +725,7 @@ class FileExplorer:
             max_len = width - x_pos - 1
             if max_len > 0:
                 display_text = right_text[:max_len]
-                self.app.stdscr.addstr(
-                    height - 1, x_pos, display_text, curses.color_pair(3)
-                )
+                self.app.stdscr.addstr(height - 1, x_pos, display_text, curses.color_pair(3))
 
         self.app.stdscr.refresh()
 
@@ -811,8 +817,6 @@ class FileExplorer:
                 if bstate & curses.BUTTON_SHIFT:
                     return  # Ignore if shift is held to allow terminal selection
 
-
-
                 # List starts at row FILE_LIST_Y_OFFSET.
                 row_in_list = my - FILE_LIST_Y_OFFSET
                 if 0 <= row_in_list < list_height:
@@ -823,10 +827,12 @@ class FileExplorer:
                             # Open file/directory on double click
                             filename = sorted_files[target_idx]
                             file_path = os.path.join(self.path, filename)
-                            
+
                             if os.path.isdir(file_path):
                                 # Enter directory
-                                self.app.switch_view(FileExplorer(self.app, file_path, back_view=self))
+                                self.app.switch_view(
+                                    FileExplorer(self.app, file_path, back_view=self)
+                                )
                             else:
                                 # Open file in editor
                                 media = self.metadata.get(filename)
@@ -836,7 +842,7 @@ class FileExplorer:
                         else:
                             # Single click - just select
                             self.selected_idx = target_idx
-                
+
                 # Footer buttons (row is height - 1)
                 if my == height - 1:
                     # Build footer to find click zones (now split into left and right sections)
@@ -847,14 +853,14 @@ class FileExplorer:
                     batch_opt = "[B]atch | " if self.batches else ""
                     action_footer = f"[ENTER] Open | {batch_opt}[R]escan | [Q/ESC] {quit_label} "
                     right_text = f" {mouse_footer} | {action_footer}"
-                    
+
                     # Use dynamic position detection for all buttons
                     def find_button(text, search_string):
                         idx = search_string.find(text)
                         if idx != -1:
                             return idx, idx + len(text)
                         return None, None
-                    
+
                     # Check left section (sort) buttons - starts at position 0
                     left_start = 0
                     buttons_left = [
@@ -863,7 +869,7 @@ class FileExplorer:
                         ("[T]racks", KEY_T_LOWER),
                         ("[A]ud Size", KEY_A_LOWER),
                     ]
-                    
+
                     for button_text, key_code in buttons_left:
                         start, end = find_button(button_text, sort_footer)
                         if start is not None:
@@ -872,7 +878,7 @@ class FileExplorer:
                             if abs_start <= mx <= abs_end:
                                 self.handle_input(key_code)
                                 return
-                    
+
                     # Check right section buttons
                     right_start = max(len(sort_footer) + 2, width - len(right_text))
                     buttons_right = [
@@ -882,7 +888,7 @@ class FileExplorer:
                         ("[R]escan", KEY_R_LOWER),
                         ("[Q/ESC]", KEY_Q_LOWER),
                     ]
-                    
+
                     for button_text, key_code in buttons_right:
                         start, end = find_button(button_text, right_text)
                         if start is not None:

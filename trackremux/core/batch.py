@@ -21,11 +21,13 @@ class BatchDetector:
     # Regex patterns to detect series/season info
     # 1. S01E01 style
     # 2. 01x01 style
-    # 3. Ep01 style  
+    # 3. Ep01 style
     # 4. Anime-style bare episode number (Name 02)
     PATTERNS = [
         re.compile(r"(.*?)[ ._-]+S(\d+)E(\d+)", re.IGNORECASE),  # Name S01E01
-        re.compile(r"(.*?)[ ._-]+(\d{1,2})x(\d{1,2})(?!\d)", re.IGNORECASE),  # Name 01x01 (max 2 digits to avoid 1920x1080)
+        re.compile(
+            r"(.*?)[ ._-]+(\d{1,2})x(\d{1,2})(?!\d)", re.IGNORECASE
+        ),  # Name 01x01 (max 2 digits to avoid 1920x1080)
         re.compile(r"(.*?)[ ._-]+Ep?(\d+)", re.IGNORECASE),  # Name Ep01
         # Anime-style: Name 02 (2-digit number followed by space, bracket, 'Dir', 'v', or end)
         re.compile(r"(.*?)[ ._-]+(\d{2})(?:[ ._\[v]|Dir|$)", re.IGNORECASE),  # Name 02
@@ -42,7 +44,7 @@ class BatchDetector:
         a_tracks = media.audio_tracks
         s_tracks = media.subtitle_tracks
 
-        # Language order is preserved for strict mapping. 
+        # Language order is preserved for strict mapping.
         # Changing order would break batch logic for mismatched files.
 
         a_langs = ",".join([t.language or "und" for t in a_tracks])

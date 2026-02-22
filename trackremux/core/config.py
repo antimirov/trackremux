@@ -130,6 +130,7 @@ class AppConfig:
 # Tiny TOML helpers (avoid external dependencies)                     #
 # ------------------------------------------------------------------ #
 
+
 def _parse_string_list(val: str) -> List[str]:
     """Parse a TOML inline array of strings like ["eng", "nld"]."""
     val = val.strip().lstrip("[").rstrip("]")

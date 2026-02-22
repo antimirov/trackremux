@@ -26,15 +26,11 @@ def main():
     meta = get_metadata()
     parser = argparse.ArgumentParser(
         prog=meta["Name"] if meta else "trackremux",
-        description=meta["Summary"] if meta else "TrackRemux TUI"
+        description=meta["Summary"] if meta else "TrackRemux TUI",
     )
     parser.add_argument("path", nargs="?", default=".", help="Path to a file or directory")
     parser.add_argument("--gui", action="store_true", help="Launch GUI (Future)")
-    parser.add_argument(
-        "-v", "--version",
-        action="version",
-        version=get_version_info()
-    )
+    parser.add_argument("-v", "--version", action="version", version=get_version_info())
     args = parser.parse_args()
 
     if args.gui:

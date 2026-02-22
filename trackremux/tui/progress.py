@@ -105,9 +105,14 @@ def atomic_finalize(staging_path: str, final_path: str, output_mode: OutputMode)
 
 
 class ProgressView:
-    def __init__(self, app, media_file, back_view,
-                 output_mode: OutputMode = OutputMode.LOCAL,
-                 convert_audio: bool = False):
+    def __init__(
+        self,
+        app,
+        media_file,
+        back_view,
+        output_mode: OutputMode = OutputMode.LOCAL,
+        convert_audio: bool = False,
+    ):
         self.app = app
         self.media_file = media_file
         self.back_view = back_view

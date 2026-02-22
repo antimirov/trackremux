@@ -11,7 +11,13 @@ from .progress import atomic_finalize, resolve_batch_output_path, resolve_stagin
 
 class BatchProgressView:
     def __init__(
-        self, app, batch_group, template_media, back_view, output_mode=OutputMode.LOCAL, convert_audio=False
+        self,
+        app,
+        batch_group,
+        template_media,
+        back_view,
+        output_mode=OutputMode.LOCAL,
+        convert_audio=False,
     ):
         self.app = app
         self.batch_group = batch_group
@@ -77,8 +83,8 @@ class BatchProgressView:
                 self.current_file = f
                 self.percent = 0
                 self.frame_status = ""
-                
-                # Calculate total frames for progress bar 
+
+                # Calculate total frames for progress bar
                 self.total_frames = 0
                 for track in f.tracks:
                     if track.codec_type == "video":
@@ -250,8 +256,10 @@ class BatchProgressView:
         if self.current_file:
             fname = os.path.basename(self.current_file.filename)
             if len(fname) > width - 15:
-                fname = fname[:width-18] + "..."
-            self.app.stdscr.addstr(y + 1, 1, f" Current: {fname} ", curses.color_pair(2) | curses.A_BOLD)
+                fname = fname[: width - 18] + "..."
+            self.app.stdscr.addstr(
+                y + 1, 1, f" Current: {fname} ", curses.color_pair(2) | curses.A_BOLD
+            )
 
         # Bar
         bar_width = min(60, width - 15)
