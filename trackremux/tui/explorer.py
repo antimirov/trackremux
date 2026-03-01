@@ -228,6 +228,9 @@ class FileExplorer:
                 1 for m in self.metadata.values() if getattr(m, "probed", False)
             )
 
+        # Check for converted counterpart in background
+        threading.Thread(target=self._check_converted_status, args=(filename,), daemon=True).start()
+
         # Run detection occasionally?
         # Every 5 files or if done?
         if self.probed_count % 5 == 0 or self.probed_count == self.total_count:
@@ -237,29 +240,56 @@ class FileExplorer:
         # The main loop redraws constantly on input, but if idle, we rely on timeout.
         # APP_TIMEOUT_MS handles the refresh rate.
 
+    def _check_converted_status(self, filename):
+        """Check if a converted version of the file exists on disk (async)."""
+        base_name = os.path.splitext(filename)[0]
+        current_dir_name = os.path.basename(os.path.normpath(self.path))
+
+        # Potential output paths
+        candidates = [
+            os.path.join(os.getcwd(), "converted_" + filename),
+            os.path.join(self.path, "converted_" + filename),
+            os.path.join(os.getcwd(), f"converted_{current_dir_name}", f"{base_name}.mkv"),
+            os.path.join(
+                os.path.dirname(os.path.normpath(self.path)),
+                f"converted_{current_dir_name}",
+                f"{base_name}.mkv",
+            ),
+        ]
+
+        output_path = None
+        for path in candidates:
+            if os.path.exists(path):
+                output_path = path
+                break
+
+        if output_path:
+            with self.metadata_lock:
+                self.metadata[f"{filename}_has_converted"] = True
+                self.metadata[f"{filename}_output_path"] = output_path
+
+
     def _get_items_separated(self):
         extensions = (".mkv", ".mp4", ".avi", ".mov", ".m4v")
+        dirs, files = [], []
         try:
-            items = []
-            for f in os.listdir(self.path):
-                full = os.path.join(self.path, f)
-                if os.path.isdir(full) and not f.startswith(".") and not f.startswith("converted_"):
-                    items.append(f)
-                elif f.lower().endswith(extensions):
-                    if not f.startswith("converted_") and not f.startswith("temp_"):
-                        items.append(f)
+            with os.scandir(self.path) as it:
+                for entry in it:
+                    if entry.name.startswith(".") or entry.name.startswith("temp_"):
+                        continue
+                    if entry.is_dir():
+                        if not entry.name.startswith("converted_"):
+                            dirs.append(entry.name)
+                    elif entry.is_file():
+                        if entry.name.lower().endswith(extensions) and not entry.name.startswith(
+                            "converted_"
+                        ):
+                            files.append(entry.name)
 
-            # Sort: Directories first, then files
-            dims, files = [], []
-            for i in items:
-                if os.path.isdir(os.path.join(self.path, i)):
-                    dims.append(i)
-                else:
-                    files.append(i)
-
-            return sorted(dims), sorted(files)
+            return sorted(dirs), sorted(files)
         except Exception:
             return [], []
+
 
     def _prioritize_visible(self, force=False):
         """Re-submit visible unprobed files to the front of the scanner queue."""
@@ -555,33 +585,9 @@ class FileExplorer:
                 is_converted = filename.startswith("converted_")
                 is_temp = filename.startswith("temp_")
 
-                local_out = os.path.join(os.getcwd(), "converted_" + filename)
-                remote_out = os.path.join(self.path, "converted_" + filename)
-
-                # Also check batch output directories:
-                # converted_<current_dir_name>/<filename> in CWD or parent dir
-                current_dir_name = os.path.basename(os.path.normpath(self.path))
-                base_name = os.path.splitext(filename)[0]
-                batch_local = os.path.join(
-                    os.getcwd(), f"converted_{current_dir_name}", f"{base_name}.mkv"
-                )
-                batch_remote = os.path.join(
-                    os.path.dirname(os.path.normpath(self.path)),
-                    f"converted_{current_dir_name}",
-                    f"{base_name}.mkv",
-                )
-
-                output_path = None
-                if os.path.exists(local_out):
-                    output_path = local_out
-                elif os.path.exists(remote_out):
-                    output_path = remote_out
-                elif os.path.exists(batch_local):
-                    output_path = batch_local
-                elif os.path.exists(batch_remote):
-                    output_path = batch_remote
-
-                has_converted = output_path is not None
+                # Badge logic moved to background check to avoid UI lag on remote mounts
+                has_converted = self.metadata.get(f"{filename}_has_converted", False)
+                output_path = self.metadata.get(f"{filename}_output_path")
 
                 dts_tag = "    "
                 if has_dts and not self.dts_filter:
@@ -597,6 +603,9 @@ class FileExplorer:
                             self.dts_badge_cache[filename] = False  # Default to false while probing
 
                             def _probe_badge(path=output_path, name=filename, tracks=audio_tracks):
+                                if not path or not os.path.exists(path):
+                                    return
+
                                 try:
                                     from ..core.converter import MediaConverter
                                     from ..core.probe import MediaProbe
@@ -908,6 +917,6 @@ class FileExplorer:
                     # Enter directory
                     self.app.switch_view(FileExplorer(self.app, file_path, back_view=self))
                 else:
-                    media = self.metadata.get(file_path)
-
-                    self.app.switch_view(TrackEditor(self.app, media or file_path, back_view=self))
+                    # Metadata is keyed by filename (basename), not full path
+                    media = self.metadata.get(filename)
+                    self.app.switch_view(TrackEditor(self.app, media if media and getattr(media, "probed", False) else file_path, back_view=self))

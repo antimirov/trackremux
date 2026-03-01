@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-03-01
+
+### Added
+- **Intelligent Audio Fallback**: Advanced chain conversion. DTS-HD MA tracks now target high-quality EAC3 5.1 (1024kbps) instead of immediately downmixing to AC3. If a conversion fails due to ffmpeg encoder limitations, the system automatically catches the failure and falls back to the next codec in the chain (AC3 5.1) seamlessly.
+- **Live Codec UI**: The progress header dynamically reflects the active codec processing attempt, while the completion screen appends a full visual history of fallback paths (e.g., `EAC3 5.1 ✘ (code 234) → AC3 5.1 ✔`).
+- **Clean Track Formatting**: Track labels correctly present standard `Language: eng, Format: DTS-HD MA, Channels: 7.1` formatting and append exact transcoding targets cleanly `[→ EAC3 5.1]` to the tail of the string.
+
+### Fixed
+- **Accurate Progress & ETA**: Completely overhauled progress tracking during conversion. It now parses exact frame counts instead of arbitrary byte streams, resolving an issue where the progress bar would leap to 99% and ETA would read as 0.00s.
+- **Dynamic File Size Estimates**: Fixed fundamentally flawed output size estimations during audio transcoding. The editor UI now accurately calculates file size reductions by dynamically swapping the original codec bitrates with encoded target bitrates, providing a realistic estimate instead of just repeating the original file size.
+
+
+## [0.7.1] - 2026-02-28
+
+### Fixed
+- Fixed issue where the `[A]` Apply Profile hint didn't display correctly when evaluating boolean audio-conditioning logic alongside exact language matches.
+- Minor refactors to improve TUI reliability across external track parsing edge cases.
+
 ## [0.7.0] - 2026-02-22
 
 ### Added

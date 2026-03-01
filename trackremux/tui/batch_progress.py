@@ -4,9 +4,13 @@ import threading
 import time
 
 from ..core.converter import MediaConverter
+from ..core.history import copy_to_clipboard, save_command
 from ..core.models import OutputMode
 from .constants import KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER
+from .formatters import format_duration
 from .progress import atomic_finalize, resolve_batch_output_path, resolve_staging_path
+
+
 
 
 class BatchProgressView:
@@ -49,10 +53,13 @@ class BatchProgressView:
         self.start_time = time.time()
         self.end_time = None
 
+        self._copy_status = ""  # clipboard feedback message
+
         # Start conversion thread
         self.thread = threading.Thread(target=self._run_batch)
         self.thread.daemon = True
         self.thread.start()
+
 
     def _apply_template(self, target_file):
         """Copies track config from template to target file."""
@@ -115,7 +122,11 @@ class BatchProgressView:
 
                 # Run conversion
                 try:
+                    cmd = MediaConverter.build_ffmpeg_command(f, staging_output, self.convert_audio)
+                    # Save to history
+                    save_command(cmd, f.path, output_path)
                     self.process = MediaConverter.convert(f, staging_output, self.convert_audio)
+
 
                     # Read loop similar to ProgressView
                     for line in self.process.stdout:
@@ -210,18 +221,20 @@ class BatchProgressView:
                             self.percent = int((current_frame / self.total_frames) * 100)
                     elif key in ("out_time_ms", "out_time_us"):
                         try:
-                            divisor = 1000000.0 if key == "out_time_us" else 1000.0
-                            current_seconds = float(value) / divisor
+                            # ffmpeg -progress uses microseconds for both keys
+                            current_seconds = float(value) / 1_000_000.0
                             if current_file and current_file.duration > 0:
                                 time_pct = int((current_seconds / current_file.duration) * 100)
                                 if time_pct > self.percent:
-                                    self.percent = time_pct
+                                    self.percent = min(99, time_pct)
                         except Exception:
                             pass
                     elif key == "progress" and value == "end":
-                        self.percent = 100
+                        self.percent = 99  # 100 is only set by process.wait() result
 
-                    self.percent = max(0, min(100, self.percent))
+                    if self.percent == 100 and key != "progress":
+                        self.percent = 99
+
 
         if line.startswith("frame="):
             self.frame_status = line
@@ -269,7 +282,25 @@ class BatchProgressView:
             y + 3, 1, f" {bar} {self.percent}% ".center(width), curses.color_pair(3)
         )
 
+        # ETA and Speed
+        elapsed = time.time() - self.start_time
+        if self.percent > 0 and not self.done:
+            # We use local % for the current file to estimate remaining batch time?
+            # Or just for this file. Let's do it for the whole batch for better UX.
+            # batch_percent = (self.current_idx + self.percent/100.0) / len(self.files_to_process)
+            batch_percent = (self.current_idx + self.percent / 100.0) / len(self.files_to_process)
+            total_est = elapsed / batch_percent
+            remaining = total_est - elapsed
+            speed = batch_percent * 100.0 / elapsed  # batch % per second
+            eta_str = f" Batch ETA: {format_duration(remaining)} | Speed: {speed:.2f} files/min "
+            # Actually files/min is more intuitive for batch
+            files_per_min = (self.current_idx + self.percent / 100.0) / (elapsed / 60.0)
+            eta_str = f" Batch ETA: {format_duration(remaining)} | Speed: {files_per_min:.1f} files/min "
+
+            self.app.stdscr.addstr(y + 4, 0, eta_str.center(width), curses.color_pair(3))
+
         self.app.stdscr.addstr(y + 5, 1, self.status.center(width), curses.color_pair(3))
+
 
         # Cleaned up raw ffmpeg logs to prevent visual UI clutter during batch runs
 
@@ -285,10 +316,9 @@ class BatchProgressView:
 
         # Footer
         if self.done:
-            footer = " [ENTER] Return to Explorer "
-            # Pass return logic? The user might want to go back to file list.
+            footer = " [ENTER] Return to Explorer | [C] Copy last command "
         else:
-            footer = " [Q/ESC] Cancel Batch "
+            footer = " [Q/ESC] Cancel Batch | [C] Copy last command "
 
         self.app.stdscr.addstr(
             height - 1, 0, footer.center(width)[: width - 1], curses.color_pair(3)
@@ -296,6 +326,18 @@ class BatchProgressView:
         self.app.stdscr.refresh()
 
     def handle_input(self, key):
+        # [C] copy last command — available always
+        if key in (ord("c"), ord("C")):
+            if self.current_file:
+                last_cmd = MediaConverter.build_ffmpeg_command(
+                    self.current_file,
+                    "<output>",
+                    convert_audio=self.convert_audio,
+                )
+                ok = copy_to_clipboard(" ".join(last_cmd))
+                self._copy_status = "Copied!" if ok else "Copy failed"
+            return
+
         if self.done:
             if key not in (curses.KEY_ENTER, 10, 13, KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER):
                 return
@@ -313,3 +355,4 @@ class BatchProgressView:
 
         if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC):
             self.cancel()
+

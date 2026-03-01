@@ -9,16 +9,73 @@ class MediaConverter:
     # Codec set of DTS variants that we transcode when convert_audio is on
     DTS_CODECS = {"dts", "dts-hd", "truehd"}  # truehd kept for completeness
 
+    # Channel-layout name → channel count
+    LAYOUT_CHANNELS = {
+        "mono": 1, "stereo": 2,
+        "2.1": 3, "3.0": 3, "3.0(back)": 3,
+        "4.0": 4, "quad": 4, "quad(side)": 4,
+        "4.1": 5, "5.0": 5, "5.0(side)": 5,
+        "5.1": 6, "5.1(side)": 6,
+        "6.0": 6, "6.0(front)": 6, "hexagonal": 6,
+        "6.1": 7, "6.1(back)": 7, "6.1(front)": 7,
+        "7.0": 7, "7.0(front)": 7,
+        "7.1": 8, "7.1(wide)": 8, "7.1(wide-side)": 8, "octagonal": 8,
+    }
+
+    @staticmethod
+    def get_channel_count(track) -> int:
+        """Return channel count for a Track, resolving from layout name if needed."""
+        if track.channels:
+            return track.channels
+        if track.channel_layout:
+            c = MediaConverter.LAYOUT_CHANNELS.get(track.channel_layout.lower())
+            if c:
+                return c
+        return 6  # safe default
+
+    @staticmethod
+    def get_audio_fallback_chain(track) -> list:
+        """
+        Returns an ordered list of codec attempt descriptors for this track.
+        Each entry is a dict with keys: codec, bitrate, ac, strict_experimental, label.
+        The caller should try them in order, falling back on ffmpeg failure.
+        """
+        channels = MediaConverter.get_channel_count(track)
+
+        if track.is_dts_hd_ma or channels > 6:
+            # DTS-HD MA or plain 7.1 DTS: best we can do in MKV is EAC3 5.1.
+            # TrueHD would be ideal but ffmpeg's matroska muxer rejects it (EINVAL).
+            # EAC3 at 1024k provides higher quality than AC3 at the same channel count.
+            return [
+                {"codec": "eac3", "bitrate": "1024k", "ac": 6,
+                 "strict_experimental": False,
+                 "label": "EAC3 5.1"},
+                {"codec": "ac3", "bitrate": "640k", "ac": 6,
+                 "strict_experimental": False,
+                 "label": "AC3 5.1"},
+            ]
+        elif channels <= 2:
+            return [{"codec": "ac3", "bitrate": "192k", "ac": channels,
+                     "strict_experimental": False,
+                     "label": f"AC3 {track.channel_layout or f'{channels}ch'}"}]
+        else:
+            ch_out = min(channels, 6)
+            return [{"codec": "ac3", "bitrate": "640k", "ac": ch_out,
+                     "strict_experimental": False,
+                     "label": f"AC3 {track.channel_layout or f'{ch_out}ch'}"}]
+
     @staticmethod
     def build_ffmpeg_command(
-        media_file: MediaFile, output_path: str, convert_audio: bool = False
+        media_file: MediaFile, output_path: str, convert_audio: bool = False,
+        codec_overrides: dict = None
     ) -> list:
         """
         Builds the ffmpeg command to keep only enabled tracks and set languages.
-        Handles both internal (same file) and external (separate file) tracks.
 
-        convert_audio: when True, DTS audio tracks are transcoded to AC3 640k
-                       instead of being stream-copied.
+        codec_overrides: maps audio output index → codec attempt dict from
+                         get_audio_fallback_chain(), e.g. {0: {"codec": "eac3", ...}}.
+                         When None, the first (preferred) entry from the chain is used.
+        convert_audio: when True, DTS audio tracks get transcoded per the fallback chain.
         """
         # 1. Identify all unique source files
         # The main file is always index 0
@@ -74,7 +131,8 @@ class MediaConverter:
 
                 # Handling DTS to AC3 conversion metadata
                 if convert_audio and track.codec_name.lower() in MediaConverter.DTS_CODECS:
-                    dts_audio_indices.append(audio_idx)
+                    dts_audio_indices.append((audio_idx, track))
+
 
                     # Rewrite the title if it contains DTS
                     title = track.tags.get("title", "")
@@ -101,50 +159,95 @@ class MediaConverter:
                 subtitle_idx += 1
 
         # 4. Codec selection
-        # Start with global copy, then override per-stream for DTS tracks
         cmd.extend(["-c", "copy"])
-        for a_idx in dts_audio_indices:
-            cmd.extend([f"-c:a:{a_idx}", "ac3", f"-b:a:{a_idx}", "640k"])
+        for a_idx, track in dts_audio_indices:
+            # Determine which codec attempt to use
+            chain = MediaConverter.get_audio_fallback_chain(track)
+            if codec_overrides and a_idx in codec_overrides:
+                attempt = codec_overrides[a_idx]
+            else:
+                attempt = chain[0]  # preferred (first) codec
+
+            codec = attempt["codec"]
+            bitrate = attempt.get("bitrate")
+            ac = attempt.get("ac")
+
+            cmd.extend([f"-c:a:{a_idx}", codec])
+            if bitrate:
+                cmd.extend([f"-b:a:{a_idx}", bitrate])
+            if ac:
+                cmd.extend([f"-ac:a:{a_idx}", str(ac)])
+            if attempt.get("strict_experimental"):
+                cmd.extend(["-strict", "experimental"])
+
+            # Rewrite track title to reflect new codec
+            title = track.tags.get("title", "")
+            if title:
+                new_title = re.sub(r"(?i)\bdts(?:-hd(?:\s*ma)?)?\b", attempt["label"], title)
+                new_title = re.sub(
+                    r"\b(?:1536|768)\s*kbps\b", f"{bitrate or ''}", new_title, flags=re.IGNORECASE
+                )
+                cmd.extend([f"-metadata:s:a:{a_idx}", f"title={new_title}"])
 
         cmd.append(output_path)
 
         return cmd
 
+
+
     @staticmethod
-    def estimate_output_size(media_file: MediaFile) -> int:
+    def estimate_output_size(media_file: MediaFile, convert_audio: bool = False) -> int:
         """
-        Estimates the output file size based on enabled tracks.
+        Estimates the output file size based on enabled tracks and audio conversion.
         """
-        # If we have total size, start with that.
-        # Estimate the size of DISABLED tracks and subtract.
         total_size = media_file.size_bytes
         if total_size <= 0:
             # Fallback to bitrate * duration if size unknown
-            total_bitrate = sum(t.bit_rate for t in media_file.tracks if t.enabled and t.bit_rate)
+            total_bitrate = 0
+            for t in media_file.tracks:
+                if t.enabled:
+                    if convert_audio and t.codec_type == "audio" and t.codec_name.lower() in MediaConverter.DTS_CODECS:
+                        chain = MediaConverter.get_audio_fallback_chain(t)
+                        tg_br = chain[0].get("bitrate", "640k")
+                        total_bitrate += int(tg_br.replace("k", "000"))
+                    elif t.bit_rate:
+                        total_bitrate += t.bit_rate
             return int((total_bitrate * media_file.duration) / 8)
 
-        disabled_size = 0
+        size_diff = 0
         for track in media_file.tracks:
             if not track.enabled:
                 if track.bit_rate:
-                    disabled_size += int((track.bit_rate * media_file.duration) / 8)
-                else:
-                    # Fallback for audio tracks with missing bitrate metadata.
-                    # Or just assume it's proportional to track count (risky for video).
-                    # For now, if no bitrate for disabled track, we can't subtract accurately.
-                    pass
+                    size_diff -= int((track.bit_rate * media_file.duration) / 8)
+            elif convert_audio and track.codec_type == "audio" and track.codec_name.lower() in MediaConverter.DTS_CODECS:
+                # Track is kept but transcoded; subtract original size, add target size
+                target_chain = MediaConverter.get_audio_fallback_chain(track)
+                target_bitrate_str = target_chain[0].get("bitrate", "640k")
+                target_bitrate = int(target_bitrate_str.replace("k", "000"))
+                
+                # If we don't know the original bitrate, we can't accurately subtract it.
+                # MKV often strips audio bitrates. A typical DTS-HD MA is ~3000-4000k. standard DTS is 1536k.
+                orig_bitrate = track.bit_rate
+                if not orig_bitrate:
+                    orig_bitrate = 3500000 if track.is_dts_hd_ma else 1536000
+                
+                size_diff -= int((orig_bitrate * media_file.duration) / 8)
+                size_diff += int((target_bitrate * media_file.duration) / 8)
 
-        return max(0, total_size - disabled_size)
+        return max(0, total_size + size_diff)
 
     @staticmethod
     def convert(
-        media_file: MediaFile, output_path: str, convert_audio: bool = False, progress_callback=None
+        media_file: MediaFile, output_path: str, convert_audio: bool = False,
+        codec_overrides: dict = None, progress_callback=None
     ):
         """
         Executes the conversion. Returns the process object so it can be managed.
+        codec_overrides: see build_ffmpeg_command.
         """
         cmd = MediaConverter.build_ffmpeg_command(
-            media_file, output_path, convert_audio=convert_audio
+            media_file, output_path, convert_audio=convert_audio,
+            codec_overrides=codec_overrides
         )
         cmd.insert(1, "-progress")
         cmd.insert(2, "-")
@@ -161,3 +264,4 @@ class MediaConverter:
             bufsize=1,  # Line buffered
         )
         return process
+

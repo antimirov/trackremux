@@ -44,8 +44,9 @@ Instead of wrestling with complex `ffmpeg` command-line arguments for every sing
     -   **Smart Batch Output**: Batch conversions automatically create a `converted_<directory>/` folder with original filenames preserved, instead of prefixing every file.
     -   **NAS-Safe Atomic Swaps**: Overwrites are safely processed in a hidden `.trackremux_staging/` directory and shifted via instantaneous atomic swaps to avoid media server race conditions, keeping original files safely in `.trackremux_trash/` for recovery.
     -   **Read-Only Detection**: Automatically warns when the source filesystem is read-only, preventing failed Overwrite/Remote saves.
--   **Audio Conditioning (DTS → AC3)**:
-    -   Automatically convert incompatible high-bitrate audio formats (DTS, DTS-HD, TrueHD) down to universally compatible `AC3 640k` via a hotkey `[C]` toggle to ensure Direct Play on all devices (e.g. LG WebOS TVs).
+-   **Intelligent Audio Fallbacks (DTS/TrueHD → EAC3/AC3)**:
+    -   Automatically transcode high-bitrate incompatible formats (DTS-HD MA, TrueHD, DTS) down to universally compatible `EAC3 5.1` (1024kbps) or `AC3 640k` via the `[C]` hotkey.
+    -   Features a robust encoding safety net: if your version of `ffmpeg` encounters layout limitations (e.g. failing to encode 7.1 to EAC3), it automatically catches the failure and falls back to the next-best conversion format without breaking the batch.
     -   Features a dynamic `DTS>AC3` badge directly inside the Explorer file list tracking conditionally encoded native AC3 streams.
     -   Added `[F]` hotkey to explicitly filter media list views exclusively to files with DTS-encoded formats.
 -   **Smart Configurations & Profiles**:
@@ -55,7 +56,7 @@ Instead of wrestling with complex `ffmpeg` command-line arguments for every sing
 -   **Safe Conversion**:
     -   Uses `ffmpeg` for robust processing.
     -   Identifies edited assets automatically tracking changes reliably even across format shifts with its own `.mkv` metadata tag system: `trackremux_id`.
-    -   Real-time progress bar and size estimation.
+    -   Real-time accurate progress tracking based on frame ratios rather than arbitrary byte streams, complete with dynamically recalculated size reduction estimates during audio transcoding.
 
 ## 📸 Visual Walkthrough
 

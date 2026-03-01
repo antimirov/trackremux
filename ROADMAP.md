@@ -21,6 +21,9 @@ TUI-native profile editor (`[P]`) with inline field editing — Enter to start e
 ### Audio "Conditioning" & DTS Badges (v0.7.0)
 Automatic detection and transcoding of DTS/TrueHD to universally compatible AC3 640k on the fly to bypass LG TV/console licensing restraints, without touching video. Integrated Explorer badging (`DTS>AC3`) and filter toggles.
 
+### Intelligent Audio Fallback & Progress Engine (v0.8.0)
+Upgraded the conditioning flag to target high-quality EAC3 5.1 (1024kbps) for DTS-HD MA tracks with an automatic retry net falling back to AC3 if muxing combinations fail. Completely overhauled the size estimator to dynamically calculate bitrate-level size reductions live in the TUI, built a cleaner string display `[→ EAC3 5.1]`, and fixed ffmpeg byte-progress unreliability by switching to exact frame-count ETA parsing.
+
 ### NAS-Safe Atomic Swaps & Staging (v0.7.0)
 Eliminated Plex/Sonarr scanning bottlenecks by performing all active remuxing to a hidden local staging directory `.trackremux_staging/`, executing an instant, atomic file swap upon completion instead of network-heavy IO operations.
 

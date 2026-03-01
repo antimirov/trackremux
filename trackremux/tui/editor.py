@@ -1,5 +1,7 @@
 import curses
 import os
+import threading
+
 
 from ..core.converter import MediaConverter
 from ..core.languages import LANGUAGE_MAP
@@ -95,8 +97,9 @@ class TrackEditor:
         elif os.path.exists(batch_remote):
             self.output_name = batch_remote
 
-        self._scan_external_tracks()
-        self._recognize_existing_output()
+        # These are slow on remote mounts, run them in a background thread
+        self._init_done = False
+        threading.Thread(target=self._background_init, daemon=True).start()
 
         # Check profile match for [A] hint (computed once on open)
         self._profile_candidates = self.app.config.matches(self.media_file)
@@ -105,6 +108,10 @@ class TrackEditor:
         # Store initial state for change detection
         # We store tuples of (index, enabled) to detect both enabling changes AND reordering
         self.initial_state = [(t.index, t.enabled) for t in self.media_file.tracks]
+
+        # Show initial conditioning status if active
+        if self.app.settings.convert_audio:
+            self.status_message = " Audio conditioning: Transcode DTS/TrueHD to EAC3/AC3 "
 
     def _guess_language(self, path):
         """Attempts to guess language from filename parts or directory names."""
@@ -175,6 +182,12 @@ class TrackEditor:
         if len(fname) > max_len:
             return fname[: max_len - 3] + "..."
         return fname
+
+    def _background_init(self):
+        """Runs slow init tasks (external track scan + existing output recognition) in background."""
+        self._scan_external_tracks()
+        self._recognize_existing_output()
+        self._init_done = True
 
     def _scan_external_tracks(self):
         """Scans the directory RECURSIVELY for sibling audio and subtitle files and adds them."""
@@ -406,7 +419,9 @@ class TrackEditor:
             output_name = self.media_file.filename
         existing_exists = os.path.exists(output_name)
 
-        est_size_mb = MediaConverter.estimate_output_size(self.media_file) / 1024 / 1024
+        est_size_mb = MediaConverter.estimate_output_size(
+            self.media_file, convert_audio=self.app.settings.convert_audio
+        ) / 1024 / 1024
         mode_tag = f"[{mode.value.upper()}] "
         target_info = (
             f" Output: {mode_tag}{output_name} | Est. file size: {format_size(est_size_mb)}"
@@ -466,18 +481,19 @@ class TrackEditor:
             # For now, let it be.
 
             display_info = track.display_info
-            # Give visual feedback if the track is scheduled for DTS>AC3 transcoding
+
+            # Give visual feedback showing the actual target codec from the fallback chain
             if (
                 self.app.settings.convert_audio
                 and track.enabled
                 and track.codec_type == "audio"
                 and track.codec_name.lower() in MediaConverter.DTS_CODECS
             ):
-                display_info = (
-                    display_info.replace("DTS", "DTS>AC3")
-                    .replace("DTS-HD", "DTS-HD>AC3")
-                    .replace("TRUEHD", "TRUEHD>AC3")
-                )
+                chain = MediaConverter.get_audio_fallback_chain(track)
+                target_label = chain[0]["label"] if chain else "AC3"
+                # Append the target codec cleanly to the end of the track info
+                display_info += f"  [→ {target_label}]"
+
 
             line = f"{prefix}{check} Stream #{track.index}: {track.codec_type.upper():<10} {track_size_str:>11}{source_tag} | {display_info}"
 
@@ -852,9 +868,10 @@ class TrackEditor:
             self._on_save_pressed()
         elif key in (KEY_C_LOWER, KEY_C_UPPER):
             self.app.settings.convert_audio = not self.app.settings.convert_audio
-            tag = "DTS to AC3 640k" if self.app.settings.convert_audio else "Copy (no transcode)"
+            tag = "Transcode DTS/TrueHD to EAC3/AC3" if self.app.settings.convert_audio else "Copy (no transcode)"
             self.status_message = f" Audio conditioning: {tag} "
         elif key in (KEY_P_LOWER, KEY_P_UPPER):
+
             self._profile_keep = ", ".join(self.app.config.keep_langs)
             self._profile_discard = ", ".join(self.app.config.discard_langs)
             self._profile_prefer_ac3 = self.app.config.prefer_ac3_over_dts

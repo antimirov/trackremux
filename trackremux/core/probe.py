@@ -52,6 +52,7 @@ class MediaProbe:
                 codec_type=codec_type,
                 language=tags.get("language"),
                 tags=tags,
+                profile=s.get("profile"),
                 channels=s.get("channels"),
                 channel_layout=s.get("channel_layout"),
                 pix_fmt=s.get("pix_fmt"),
@@ -66,6 +67,7 @@ class MediaProbe:
                 ),
                 is_attached_pic=disposition.get("attached_pic", 0) == 1,
             )
+
 
             # Try to find bit_rate in multiple places
             br = s.get("bit_rate")
