@@ -48,7 +48,7 @@ Instead of wrestling with complex `ffmpeg` command-line arguments for every sing
     -   Automatically transcode high-bitrate incompatible formats (DTS-HD MA, TrueHD, DTS) down to universally compatible `EAC3 5.1` (1024kbps) or `AC3 640k` via the `[C]` hotkey.
     -   Features a robust encoding safety net: if your version of `ffmpeg` encounters layout limitations (e.g. failing to encode 7.1 to EAC3), it automatically catches the failure and falls back to the next-best conversion format without breaking the batch.
     -   Features a dynamic `DTS>AC3` badge directly inside the Explorer file list tracking conditionally encoded native AC3 streams.
-    -   Added `[F]` hotkey to explicitly filter media list views exclusively to files with DTS-encoded formats.
+    -   Added `[D]` hotkey to explicitly filter media list views exclusively to files with DTS-encoded formats.
 -   **Smart Configurations & Profiles**:
     -   Build and utilize default setting profiles (`keep_langs`, `discard_langs`, `ac3` preference overrides).
     -   Interactive profile editor overlay via `[P]` — Enter to edit fields, cursor navigation, Enter to confirm and auto-save, Escape to discard changes.
@@ -151,7 +151,7 @@ trackremux "My Movie.mkv"
 | **PgUp / PgDn** | Scroll pages |
 | **Enter** | Open selected file in Editor |
 | **B** | Open Batch Selector (when batches detected) |
-| **D** | Cycle filter: All → DTS only → DTS>AC3 only |
+| **D** | Toggle Filter: All / DTS only |
 | **M** | Toggle Mouse Support |
 | **R** | Force re-scan current directory |
 | **N / S / T / A** | Sort by **N**ame, **S**ize, **T**racks, **A**udio Size |
@@ -170,6 +170,7 @@ trackremux "My Movie.mkv"
 | **C** | Toggle DTS → AC3 audio conditioning |
 | **P** | Open Profile editor (keep/discard languages, AC3 preference) |
 | **A** | Apply saved profile to current file |
+| **M** | Toggle Mouse Support |
 | **S** | Save — opens output mode dialog (`[O]`verwrite / `[L]`ocal / `[R]`emote) |
 | **Esc / Q** | Back to Explorer |
 

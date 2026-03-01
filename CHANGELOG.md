@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2026-03-01
+
+### Fixed
+- **Explorer Filter Badges**: Resolved a visual bug where the explicit `DTS` badge disappeared from the 'TRACKS / AUDIO SIZE' column when the library was actively filtered by the `[D]` hotkey. DTS and `DTS>AC3` tags now persistently render when filtered.
+
 ## [0.8.0] - 2026-03-01
 
 ### Added
@@ -35,6 +40,7 @@ All notable changes to this project will be documented in this file.
 - **🔍 Track Identity Preservation**: Injects a case-insensitive `trackremux_id` metadata tag into MKV streams for deterministic track re-mapping when reloading converted files, completely bypassing FFmpeg codec obfuscation.
 - **🔐 Read-Only FS Detection**: The Save dialog automatically detects read-only source filesystems and warns users before attempting Overwrite or Remote saves.
 - **📊 Contextual Save Dialog**: The Save overlay now shows exactly what will be created per mode — full output paths for single files, or directory names with file counts for batch operations.
+- **🔍 Filter by DTS**: Added `[D]` hotkey to explicitly filter media list views exclusively to files with DTS-encoded formats.
 
 ### Changed
 - **Batch Progress UI**: Batch conversions now show a dedicated progress view with file-by-file progress (`1/10`, `2/10`...), per-file progress bar, and a completion summary screen.

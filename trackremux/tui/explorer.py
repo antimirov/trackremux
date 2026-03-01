@@ -590,7 +590,7 @@ class FileExplorer:
                 output_path = self.metadata.get(f"{filename}_output_path")
 
                 dts_tag = "    "
-                if has_dts and not self.dts_filter:
+                if has_dts:
                     dts_tag = " DTS"
 
                     # If this file was already processed, peek into cache or probe it once
