@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.1] - 2026-03-09
+
+### Fixed
+- **Hotfix**: Resolved a critical syntax error in the Editor's output mode dialog introduced in 0.9.0.
+
 ## [0.9.0] - 2026-03-07
 
 ### Added

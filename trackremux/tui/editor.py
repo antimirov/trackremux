@@ -1078,7 +1078,7 @@ class TrackEditor:
 
     def _handle_output_dialog(self, key):
         """Handle keypresses inside the output mode dialog."""
-        if key in (KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER, ord("c"), ord("C")):-
+        if key in (KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER, ord("c"), ord("C")):
             self.showing_output_dialog = False
         elif key in (KEY_O_LOWER, KEY_O_UPPER):
             # Check if source filesystem is writable
