@@ -4,6 +4,7 @@ import threading
 
 
 from ..core.converter import MediaConverter
+from ..core.donor import DonorAligner
 from ..core.languages import LANGUAGE_MAP
 from ..core.models import OutputMode
 from ..core.preview import MediaPreview
@@ -11,6 +12,8 @@ from ..core.probe import MediaProbe
 from .batch_progress import BatchProgressView
 from .constants import (
     APP_TIMEOUT_MS,
+    KEY_A_LOWER,
+    KEY_A_UPPER,
     KEY_C_LOWER,
     KEY_C_UPPER,
     KEY_ENTER,
@@ -64,14 +67,26 @@ class TrackEditor:
         # Editable fields for profile overlay
         self._profile_keep = ", ".join(self.app.config.keep_langs)
         self._profile_discard = ", ".join(self.app.config.discard_langs)
-        self._profile_prefer_ac3 = self.app.config.prefer_ac3_over_dts
+        self._profile_prefer_ac3 = self.app.config.prefer_ac3_over_hd
         self._profile_field = 0  # 0=keep, 1=discard, 2=ac3 toggle
         self._profile_cursor = len(self._profile_keep)
         self._profile_editing = False  # True when actively editing a text field
         self._profile_edit_backup = ""  # Backup for ESC discard
         self._profile_save_msg = ""  # Shown inside the overlay after saving
+        # Donor overlay state
+        self.showing_donor_overlay = False     # Donor Picker list
+        self.showing_donor_track_picker = False  # Second overlay: pick tracks from donor
+        self._donor_list: list[tuple[str, float]] = []  # [(path, match_pct), ...]
+        self._donor_sel = 0                     # cursor in donor list
+        self._donor_scroll = 0
+        self._donor_computing = False           # True while alignment is running
+        self._donor_offset: float = 0.0         # computed offset seconds
+        self._donor_confidence: float = 0.0
+        self._donor_chosen_path: str = ""       # path of confirmed donor
+        self._donor_track_list: list = []       # audio tracks from donor
+        self._donor_track_sel: set[int] = set() # selected donor track indices
+        self._donor_track_cursor = 0            # cursor in track picker
 
-        # Track if we are viewing an already converted state
         base_name = os.path.splitext(self.media_file.filename)[0]
         source_dir = os.path.dirname(os.path.abspath(self.file_path))
         dir_name = os.path.basename(os.path.normpath(source_dir))
@@ -111,7 +126,7 @@ class TrackEditor:
 
         # Show initial conditioning status if active
         if self.app.settings.convert_audio:
-            self.status_message = " Audio conditioning: Transcode DTS/TrueHD to EAC3/AC3 "
+            self.status_message = " HD Audio Conditioning (THD/DTS → EAC3/AC3) "
 
     def _guess_language(self, path):
         """Attempts to guess language from filename parts or directory names."""
@@ -187,6 +202,9 @@ class TrackEditor:
         """Runs slow init tasks (external track scan + existing output recognition) in background."""
         self._scan_external_tracks()
         self._recognize_existing_output()
+        
+        # Sync the baseline state so auto-restored donor tracks don't trigger the "Unsaved Changes" prompt on exit
+        self.commit_changes()
         self._init_done = True
 
     def _scan_external_tracks(self):
@@ -316,18 +334,39 @@ class TrackEditor:
                 if "trackremux_id" in lower_tags:
                     try:
                         src_idx = int(lower_tags["trackremux_id"])
+                        matched_in_source = False
                         for src in source_tracks:
-                            if src.index == src_idx:
+                            src_cmp_id = src.trackremux_id if src.trackremux_id is not None else src.index
+                            if src_cmp_id == src_idx:
                                 src.enabled = True
                                 matched_indices.append(src.index)
+                                matched_in_source = True
                                 # Detect if this track was transcoded from DTS to AC3 to auto-enable the UI toggle
                                 if (
                                     src.codec_type == "audio"
-                                    and src.codec_name.lower() in MediaConverter.DTS_CODECS
+                                    and src.codec_name.lower() in MediaConverter.HD_CODECS
                                     and ex.codec_name.lower() == "ac3"
                                 ):
                                     self.app.settings.convert_audio = True
                                 break
+                        
+                        if not matched_in_source:
+                            # This must be a donor track that was injected previously!
+                            # Let's import it straight from the converted file.
+                            new_donor = ex
+                            new_donor.source_path = self.output_name
+                            new_donor.offset_seconds = 0.0  # Already synced in the converted file
+                            new_donor.trackremux_id = src_idx
+                            new_donor.enabled = True
+                            
+                            # Insert it cleanly after the last track of the same type rather than at the bottom
+                            insert_idx = len(self.media_file.tracks)
+                            for i, track in enumerate(reversed(self.media_file.tracks)):
+                                if track.codec_type == new_donor.codec_type:
+                                    insert_idx = len(self.media_file.tracks) - i
+                                    break
+                            self.media_file.tracks.insert(insert_idx, new_donor)
+
                         continue  # Move to next output track
                     except ValueError:
                         pass
@@ -341,7 +380,7 @@ class TrackEditor:
                     codec_match = src.codec_name == ex.codec_name
                     if not codec_match and src.codec_type == "audio" and ex.codec_type == "audio":
                         if (
-                            src.codec_name.lower() in MediaConverter.DTS_CODECS
+                            src.codec_name.lower() in MediaConverter.HD_CODECS
                             and ex.codec_name.lower() == "ac3"
                         ):
                             codec_match = True
@@ -363,7 +402,7 @@ class TrackEditor:
                         # Detect if this track was transcoded from DTS to AC3 to auto-enable the UI toggle
                         if (
                             src.codec_type == "audio"
-                            and src.codec_name.lower() in MediaConverter.DTS_CODECS
+                            and src.codec_name.lower() in MediaConverter.HD_CODECS
                             and ex.codec_name.lower() == "ac3"
                         ):
                             self.app.settings.convert_audio = True
@@ -474,7 +513,7 @@ class TrackEditor:
             source_tag = ""
             if track.source_path:
                 short_name = self._get_short_source_name(track.source_path)
-                source_tag = f" [EXT: {short_name}]"
+                source_tag = f" [EXT: {short_name} #{track.index}]"
 
             # Truncate source tag if too long?
             # Max width logic?
@@ -487,7 +526,7 @@ class TrackEditor:
                 self.app.settings.convert_audio
                 and track.enabled
                 and track.codec_type == "audio"
-                and track.codec_name.lower() in MediaConverter.DTS_CODECS
+                and track.codec_name.lower() in MediaConverter.HD_CODECS
             ):
                 chain = MediaConverter.get_audio_fallback_chain(track)
                 target_label = chain[0]["label"] if chain else "AC3"
@@ -495,7 +534,7 @@ class TrackEditor:
                 display_info += f"  [→ {target_label}]"
 
 
-            line = f"{prefix}{check} Stream #{track.index}: {track.codec_type.upper():<10} {track_size_str:>11}{source_tag} | {display_info}"
+            line = f"{prefix}{check} Stream #{idx}: {track.codec_type.upper():<10} {track_size_str:>11}{source_tag} | {display_info}"
 
             if idx == self.selected_idx:
                 attr = curses.color_pair(5)
@@ -529,12 +568,12 @@ class TrackEditor:
         if width < 110:
             footer = (
                 f" [SPC] Tgl | [ENT] Play | [L] Lang | [S+↑/↓] Move"
-                f" | [C] {audio_tag} | [S] Save | [P] Prof | [M] {mouse_status} | [Q] Back "
+                f" | [C] {audio_tag} | [D] Donor | [S] Save | [P] Prof | [M] {mouse_status} | [Q] Back "
             )
         else:
             footer = (
                 f" [SPACE] Toggle | [ENTER] Play | [L] Lang | [Shift+↑/↓] Reorder"
-                f" | [C] {audio_tag} | [S] Save | [P] Profile | [M] Mouse:{mouse_status} | [Q/ESC] Back "
+                f" | [C] {audio_tag} | [D] Donor | [S] Save | [P] Profile | [M] Mouse:{mouse_status} | [Q/ESC] Back "
             )
 
         self.app.stdscr.addstr(
@@ -552,6 +591,14 @@ class TrackEditor:
         # Profile Save Overlay
         if self.showing_profile_overlay:
             self._draw_profile_overlay(height, width)
+
+        # Donor Overlay
+        if self.showing_donor_overlay:
+            self._draw_donor_overlay(height, width)
+
+        # Donor Track Picker Overlay
+        if self.showing_donor_track_picker:
+            self._draw_donor_track_picker(height, width)
 
         # Confirmation Overlay
         if self.confirming_exit:
@@ -641,6 +688,16 @@ class TrackEditor:
         # Overlay dispatch: profile save overlay
         if self.showing_profile_overlay:
             self._handle_profile_overlay(key)
+            return
+
+        # Overlay dispatch: donor track picker (inner)
+        if self.showing_donor_track_picker:
+            self._handle_donor_track_picker(key)
+            return
+
+        # Overlay dispatch: donor file picker (outer)
+        if self.showing_donor_overlay:
+            self._handle_donor_overlay(key)
             return
 
         if self.confirming_exit:
@@ -868,13 +925,13 @@ class TrackEditor:
             self._on_save_pressed()
         elif key in (KEY_C_LOWER, KEY_C_UPPER):
             self.app.settings.convert_audio = not self.app.settings.convert_audio
-            tag = "Transcode DTS/TrueHD to EAC3/AC3" if self.app.settings.convert_audio else "Copy (no transcode)"
+            tag = "HD Audio Conditioning (THD/DTS → EAC3/AC3)" if self.app.settings.convert_audio else "Copy (no transcode)"
             self.status_message = f" Audio conditioning: {tag} "
         elif key in (KEY_P_LOWER, KEY_P_UPPER):
 
             self._profile_keep = ", ".join(self.app.config.keep_langs)
             self._profile_discard = ", ".join(self.app.config.discard_langs)
-            self._profile_prefer_ac3 = self.app.config.prefer_ac3_over_dts
+            self._profile_prefer_ac3 = self.app.config.prefer_ac3_over_hd
             self._profile_field = 0
             self.showing_profile_overlay = True
         elif key in (KEY_O_LOWER, KEY_O_UPPER):
@@ -910,10 +967,14 @@ class TrackEditor:
                 self._profile_candidates = []
                 self.status_message = " Profile applied. "
             else:
-                # If already applied or no hint, treat A as normal (ignore or show msg)
                 self.status_message = " No profile to apply. "
-        # Dismiss profile hint with any unhandled key (but keep typing)
-        # We suppress via profile_hint_dismissed only when user actively dismisses
+        # [D] Donor picker
+        elif key in (ord("d"), ord("D")):
+            track = self.media_file.tracks[self.selected_idx]
+            if track.codec_type != "audio":
+                self.status_message = " Select an audio track to use Donor import. "
+            else:
+                self._open_donor_overlay()
 
     def _on_save_pressed(self):
         """Called when [S] is pressed.  Shows output mode dialog once per session."""
@@ -1017,7 +1078,7 @@ class TrackEditor:
 
     def _handle_output_dialog(self, key):
         """Handle keypresses inside the output mode dialog."""
-        if key in (KEY_ESC, ord("c"), ord("C")):
+        if key in (KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER, ord("c"), ord("C")):-
             self.showing_output_dialog = False
         elif key in (KEY_O_LOWER, KEY_O_UPPER):
             # Check if source filesystem is writable
@@ -1104,7 +1165,7 @@ class TrackEditor:
 
     def _handle_overwrite_warning_dialog(self, key):
         """Handle keypresses inside the overwrite residual warning dialog."""
-        if key in (KEY_ESC, ord("c"), ord("C")):
+        if key in (KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER, ord("c"), ord("C")):
             self.showing_overwrite_warning = False
             # Re-open the output dialog so they can pick something else
             self.showing_output_dialog = True
@@ -1151,7 +1212,7 @@ class TrackEditor:
         fields = [
             ("Keep languages:", self._profile_keep),
             ("Discard languages:", self._profile_discard),
-            ("Prefer AC3 over DTS:", ac3_val),
+            ("Prefer AC3 over HD Aud:", ac3_val),
         ]
         for i, (label, val) in enumerate(fields):
             is_active = self._profile_field == i
@@ -1211,7 +1272,7 @@ class TrackEditor:
         self.app.config.discard_langs = [
             s.strip() for s in self._profile_discard.split(",") if s.strip()
         ]
-        self.app.config.prefer_ac3_over_dts = self._profile_prefer_ac3
+        self.app.config.prefer_ac3_over_hd = self._profile_prefer_ac3
         self.app.config.save()
         from ..core.config import CONFIG_PATH
 
@@ -1258,7 +1319,7 @@ class TrackEditor:
             return
 
         # Not editing — navigation mode
-        if key == KEY_ESC:
+        if key in (KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER):
             self.showing_profile_overlay = False
         elif key in (curses.KEY_UP, curses.KEY_BTAB):
             self._profile_field = (self._profile_field - 1) % 3
@@ -1358,8 +1419,6 @@ class TrackEditor:
             if track.source_path:
                 self._show_subtitle_preview(track.source_path)
             else:
-                # Internal subtitle? Can't easy preview without extraction.
-                # Internal subtitle preview not supported strictly yet.
                 self.status_message = " Preview not supported for internal subtitles yet. "
             return
 
@@ -1377,12 +1436,6 @@ class TrackEditor:
         for t in self.media_file.tracks:
             if t == track:
                 break
-            if t == track:
-                break
-            # MediaPreview.extract_snippet uses ffmpeg -map 0:{codec}:{index}.
-            # We must calculate the relative index of this track among all tracks
-            # of the same type within the same source file.
-
             if t.source_path == track.source_path and t.codec_type == track.codec_type:
                 type_idx += 1
 
@@ -1397,3 +1450,312 @@ class TrackEditor:
             self.status_message = f" Playing Track #{track.index} at {time_str} ({PREVIEW_DURATION_SECONDS}s snippet) "
         else:
             self.status_message = " Extraction failed! "
+
+    # ------------------------------------------------------------------
+    # Donor overlay
+    # ------------------------------------------------------------------
+
+    def _open_donor_overlay(self):
+        """Open the Donor Picker overlay, powered by the DonorCache on the app."""
+        cache = getattr(self.app, "donor_cache", None)
+        if cache is None:
+            self.status_message = " Donor cache not available. "
+            return
+
+        donors = cache.get_donors(self.file_path, self.media_file.duration)
+        if not donors:
+            self.status_message = " No matching donor files found in this directory. "
+            return
+
+        self._donor_target_idx = self.selected_idx
+        # List of [path, len_pct, sync_confidence, sync_offset]
+        self._donor_list = [[d[0], d[1], None, 0.0] for d in donors]
+        self._donor_sel = 0
+        self._donor_scroll = 0
+        self._donor_computing = False
+        self._donor_bulk_computing = False
+        self._donor_bulk_progress = (0, 0)
+        self._donor_offset = 0.0
+        self._donor_confidence = 0.0
+        self.showing_donor_overlay = True
+
+    def _draw_donor_overlay(self, height, width):
+        """Donor File Picker overlay."""
+        mw = min(width - 4, 80)
+        list_visible = min(len(self._donor_list), height // 2)
+        mh = list_visible + 6
+        my = (height - mh) // 2
+        mx = (width - mw) // 2
+
+        for r in range(mh):
+            self.app.stdscr.addstr(my + r, mx, " " * mw, curses.color_pair(3))
+
+        title = "─── Donor File Picker (alternative release) "
+        title += "─" * max(0, mw - len(title) - 2)
+        self.app.stdscr.addstr(my, mx + 1, title[: mw - 2], curses.color_pair(3) | curses.A_BOLD)
+
+        hint = "  [↑↓] Nav  [P] Prev  [A] Deep Analysis  [ENTER] Select  [ESC] Cancel"
+        self.app.stdscr.addstr(my + 1, mx, hint[: mw], curses.A_DIM)
+
+        if getattr(self, "_donor_bulk_computing", False):
+            spin = ["|" , "/", "-", "\\"][int(__import__("time").time() * 4) % 4]
+            done, total = self._donor_bulk_progress
+            computing = f"  {spin} Analyzing donors {done}/{total}… (this may take a while)"
+            self.app.stdscr.addstr(my + 2, mx, computing[: mw], curses.color_pair(5))
+        elif self._donor_computing:
+            spin = ["|" , "/", "-", "\\"][int(__import__("time").time() * 4) % 4]
+            computing = f"  {spin} Computing sync offset… (this takes ~5s)"
+            self.app.stdscr.addstr(my + 2, mx, computing[: mw], curses.color_pair(5))
+        elif self._donor_confidence > 0:
+            sign = "+" if self._donor_offset >= 0 else ""
+            conf_pct = int(self._donor_confidence * 100)
+            result = f"  ✓ Offset: {sign}{self._donor_offset:.2f}s  Confidence: {conf_pct}%"
+            self.app.stdscr.addstr(my + 2, mx, result[: mw], curses.color_pair(5))
+        else:
+            self.app.stdscr.addstr(my + 2, mx, " " * mw, curses.color_pair(3))
+
+        # Ensure scroll window
+        if self._donor_sel < self._donor_scroll:
+            self._donor_scroll = self._donor_sel
+        elif self._donor_sel >= self._donor_scroll + list_visible:
+            self._donor_scroll = self._donor_sel - list_visible + 1
+
+        for i in range(list_visible):
+            idx = i + self._donor_scroll
+            if idx >= len(self._donor_list):
+                break
+            
+            item = self._donor_list[idx]
+            dpath, dpct = item[0], item[1]
+            conf = item[2] if len(item) > 2 else None
+            
+            fname = os.path.basename(dpath)
+            is_sel = idx == self._donor_sel
+            attr = curses.color_pair(5) if is_sel else curses.color_pair(3)
+            prefix = "> " if is_sel else "  "
+            
+            length_tag = f"[Len: {dpct:.1f}%]"
+            if conf is None:
+                sync_tag = "[Sync:   ? ]"
+            else:
+                sync_tag = f"[Sync: {int(conf*100):>3}%]"
+                
+            line = f"{prefix}{length_tag} {sync_tag}  {fname}"
+            self.app.stdscr.addstr(my + 3 + i, mx, line[: mw], attr)
+
+        footer = "  [ENTER] Confirm donor  [P] Preview  [Q/ESC] Cancel"
+        self.app.stdscr.addstr(my + mh - 1, mx, footer[: mw], curses.A_DIM)
+
+    def _handle_donor_overlay(self, key):
+        """Key handler for Donor File Picker."""
+        if key in (KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER):
+            self.showing_donor_overlay = False
+            return
+        elif key == curses.KEY_UP and self._donor_sel > 0:
+            self._donor_sel -= 1
+        elif key == curses.KEY_DOWN and self._donor_sel < len(self._donor_list) - 1:
+            self._donor_sel += 1
+        elif key in (KEY_P_LOWER, KEY_P_UPPER):
+            # Preview the first audio track of the donor file using existing infra
+            if not self._donor_list:
+                return
+            donor_path = self._donor_list[self._donor_sel][0]
+            self.status_message = f" Extracting donor preview… "
+            self.draw()
+            wav = MediaPreview.extract_snippet(donor_path, "audio", 0, start_time=0.0)
+            if wav:
+                MediaPreview.play_snippet(wav)
+                self.status_message = f" Previewing: {os.path.basename(donor_path)} "
+            else:
+                self.status_message = " Preview extraction failed. "
+                
+        elif key in (KEY_A_LOWER, KEY_A_UPPER):
+            if not self._donor_list or getattr(self, "_donor_bulk_computing", False) or self._donor_computing:
+                return
+            self._donor_bulk_computing = True
+            total = len(self._donor_list)
+            self._donor_bulk_progress = (0, total)
+            
+            def _run_bulk_analysis():
+                try:
+                    from ..core.probe import MediaProbe
+                    from ..core.donor import DonorAligner
+                    media_a = self.media_file
+                    target_stream = media_a.tracks[self._donor_target_idx].index
+                    
+                    # Pre-extract the audio envelope for our target track once
+                    env_a = DonorAligner._extract_envelope(media_a.path, target_stream)
+                    
+                    for i, item in enumerate(self._donor_list):
+                        dpath, dpct, conf, off = self._donor_list[i]
+                        if conf is not None:
+                            self._donor_bulk_progress = (i + 1, total)
+                            continue
+                            
+                        try:
+                            media_b = MediaProbe.probe(dpath)
+                            o, c = DonorAligner.align_best_track(
+                                media_a.path, target_stream, dpath, media_b.tracks, env_a=env_a
+                            )
+                            self._donor_list[i][2] = c
+                            self._donor_list[i][3] = o
+                        except Exception:
+                            self._donor_list[i][2] = 0.0
+                            
+                        self._donor_bulk_progress = (i + 1, total)
+
+                    # Sort by confidence descending, then by duration match descending
+                    self._donor_list.sort(key=lambda x: (x[2] if x[2] is not None else -1.0, x[1]), reverse=True)
+                    self._donor_sel = 0
+                    self._donor_scroll = 0
+                finally:
+                    self._donor_bulk_computing = False
+
+            import threading
+            threading.Thread(target=_run_bulk_analysis, daemon=True).start()
+
+        elif key == KEY_ENTER:
+            if not self._donor_list:
+                return
+            item = self._donor_list[self._donor_sel]
+            donor_path = item[0]
+            dpct = item[1]
+            cached_conf = item[2]
+            cached_offset = item[3]
+            
+            self._donor_chosen_path = donor_path
+            # Start alignment in background (or skip if cached)
+            self._donor_computing = True
+            
+            if cached_conf is not None:
+                self._donor_offset = cached_offset
+                self._donor_confidence = cached_conf
+            else:
+                self._donor_offset = 0.0
+                self._donor_confidence = 0.0
+
+            def _run_alignment():
+                try:
+                    from ..core.probe import MediaProbe
+                    from ..core.donor import DonorAligner
+                    media_a = self.media_file
+                    media_b = MediaProbe.probe(donor_path)
+                    
+                    if cached_conf is None:
+                        target_stream = media_a.tracks[self._donor_target_idx].index
+                        off, conf = DonorAligner.align_best_track(
+                            media_a.path, target_stream, donor_path, media_b.tracks
+                        )
+                        self._donor_offset = off
+                        self._donor_confidence = conf
+                        # Cache it on the fly
+                        self._donor_list[self._donor_sel][2] = conf
+                        self._donor_list[self._donor_sel][3] = off
+                    
+                    # Populate track picker
+                    self._donor_track_list = [t for t in media_b.tracks if t.codec_type == "audio"]
+                    self._donor_track_sel = set()
+                    self._donor_track_cursor = 0
+                finally:
+                    self._donor_computing = False
+                    self.showing_donor_overlay = False
+                    self.showing_donor_track_picker = True
+
+            import threading
+            threading.Thread(target=_run_alignment, daemon=True).start()
+
+    def _draw_donor_track_picker(self, height, width):
+        """Second overlay: pick which tracks to import from the donor."""
+        mw = min(width - 4, 82)
+        list_visible = min(max(len(self._donor_track_list), 1), height // 2)
+        mh = list_visible + 7
+        my = (height - mh) // 2
+        mx = (width - mw) // 2
+
+        for r in range(mh):
+            self.app.stdscr.addstr(my + r, mx, " " * mw, curses.color_pair(3))
+
+        title = "─── Import Tracks from Donor "
+        title += "─" * max(0, mw - len(title) - 2)
+        self.app.stdscr.addstr(my, mx + 1, title[: mw - 2], curses.color_pair(3) | curses.A_BOLD)
+
+        if self._donor_computing:
+            spin = ["|", "/", "-", "\\"][int(__import__("time").time() * 4) % 4]
+            self.app.stdscr.addstr(
+                my + 1, mx, f"  {spin} Computing sync offset…"[:mw], curses.color_pair(5)
+            )
+        else:
+            sign = "+" if self._donor_offset >= 0 else ""
+            conf_pct = int(self._donor_confidence * 100)
+            warn = " ⚠ Low confidence" if self._donor_confidence < 0.6 else ""
+            sync_str = f"  Sync offset: {sign}{self._donor_offset:.2f}s  Confidence: {conf_pct}%{warn}"
+            attr = curses.color_pair(4) if self._donor_confidence < 0.6 else curses.color_pair(5)
+            self.app.stdscr.addstr(my + 1, mx, sync_str[:mw], attr)
+
+        donor_name = os.path.basename(self._donor_chosen_path)
+        self.app.stdscr.addstr(
+            my + 2, mx, f"  Donor: {donor_name}"[:mw], curses.A_DIM
+        )
+
+        hint = "  [↑↓] Navigate  [SPACE] Toggle  [ENTER] Import selected  [Q/ESC] Cancel"
+        self.app.stdscr.addstr(my + 3, mx, hint[:mw], curses.A_DIM)
+
+        if not self._donor_track_list:
+            self.app.stdscr.addstr(my + 4, mx, "  (No audio tracks in donor file)", curses.color_pair(3))
+        else:
+            for i, track in enumerate(self._donor_track_list):
+                is_cursor = i == self._donor_track_cursor
+                is_checked = i in self._donor_track_sel
+                check = "[X]" if is_checked else "[ ]"
+                prefix = "> " if is_cursor else "  "
+                attr = curses.color_pair(5) if is_cursor else curses.color_pair(3)
+                info = track.display_info
+                line = f"{prefix}{check} Stream #{track.index}: {info}"
+                self.app.stdscr.addstr(my + 4 + i, mx, line[:mw], attr)
+
+        footer = "  [ENTER] Import selected  [Q/ESC] Cancel"
+        self.app.stdscr.addstr(my + mh - 1, mx, footer[:mw], curses.A_DIM)
+
+    def _handle_donor_track_picker(self, key):
+        """Key handler for Donor Track Picker."""
+        if self._donor_computing:
+            return  # Wait for alignment to finish
+
+        if key in (KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER):
+            self.showing_donor_track_picker = False
+            return
+        elif key == curses.KEY_UP and self._donor_track_cursor > 0:
+            self._donor_track_cursor -= 1
+        elif key == curses.KEY_DOWN and self._donor_track_cursor < len(self._donor_track_list) - 1:
+            self._donor_track_cursor += 1
+        elif key == KEY_SPACE:
+            # Toggle selection
+            idx = self._donor_track_cursor
+            if idx in self._donor_track_sel:
+                self._donor_track_sel.discard(idx)
+            else:
+                self._donor_track_sel.add(idx)
+        elif key == KEY_ENTER:
+            if not self._donor_track_sel:
+                self.status_message = " No tracks selected. Use SPACE to select. "
+                return
+            imported = 0
+            for i in sorted(self._donor_track_sel):
+                src_track = self._donor_track_list[i]
+                src_track.source_path = self._donor_chosen_path
+                src_track.offset_seconds = self._donor_offset
+                src_track.enabled = True
+                # Give a fresh ID for the output metadata so it doesn't clash with existing tracks
+                # but keep the original src_track.index intact for accurate FFmpeg mapping
+                existing_max = max((t.trackremux_id if t.trackremux_id is not None else t.index for t in self.media_file.tracks), default=-1)
+                src_track.trackremux_id = existing_max + 1 + imported
+                self.media_file.tracks.append(src_track)
+                imported += 1
+
+            sign = "+" if self._donor_offset >= 0 else ""
+            self.status_message = (
+                f" Imported {imported} track(s) from donor "
+                f"(offset {sign}{self._donor_offset:.2f}s applied). Press [S] to save. "
+            )
+            self.showing_donor_track_picker = False
+

@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0] - 2026-03-07
+
+### Added
+- **Donor Audio Track Import (Hybrid Remuxing)**: Seamlessly import dubbed audio tracks from alternative releases. Press `[D]` in the Editor on any audio track to open the Donor File Picker.
+- **Bulk Deep Analysis**: Press `[A]` in the Donor picker to instantly calculate exact sync offsets for all candidates in the list using FFmpeg `ebur128` loudness enveloping.
+- **Exhaustive Track Scanning**: The deep analysis algorithm automatically scans all audio tracks within a donor container to find the absolute best match without guessing.
+- **TrueHD & PCM Support**: Added full support for high-resolution Dolby TrueHD and raw PCM audio streams.
+- **Dynamic HD Audio Badging**: Explorer UI now dynamically detects and displays the highest-tier codec badge (`THD`, `PCM`, or `DTS`) for each file.
+- **Smart Profile Protection**: The `prefer_ac3_over_hd` logic now intelligently checks for the `default` disposition flag. It will only drop HD audio if a native primary AC3 track exists, ensuring director's commentaries and secondary tracks don't accidentally suppress the main soundtrack.
+
+### Changed
+- **HD Audio Terminology**: Unified "DTS" branding into "HD Audio" across filters and toggles. 
+  - Explorer filter `[D]` is now labeled `Filter: HD Aud`.
+  - Editor toggle `[C]` is now labeled `HD Audio Conditioning (THD/DTS → EAC3/AC3)`.
+  - Config key renamed to `prefer_ac3_over_hd` (with legacy fallback for `prefer_ac3_over_dts`).
+- **UI Interaction Consistency**: Standardized Editor overlay keybindings to allow pressing `Q` or `ESC` interchangeably to cancel or close dialogs (e.g. Donor Picker, Profile Manager, Save Prompt).
+
+### Fixed
+- **Remux Progress ETA**: Resolved a persistent bug where conversion tasks involving only stream-copying (no transcoding) would display a 0s ETA. The estimate now robustly falls back to calculating media time from current frame counts.
+
 ## [0.8.1] - 2026-03-01
 
 ### Fixed

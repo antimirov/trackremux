@@ -29,7 +29,10 @@ class Track:
     bit_rate: Optional[int] = None  # In bits/s
     nb_frames: Optional[int] = None  # For video
     is_attached_pic: bool = False  # True for cover art/attached pictures
-    source_path: Optional[str] = None  # Path to external file logic (or None for main file)
+    is_default: bool = False  # True when disposition.default == 1
+    source_path: Optional[str] = None  # Path to external file (or None for main file)
+    offset_seconds: float = 0.0  # Sync offset for donor tracks (applied via -itsoffset)
+    trackremux_id: Optional[int] = None  # Unique ID for the output file metadata
 
     @property
     def is_dts_hd_ma(self) -> bool:

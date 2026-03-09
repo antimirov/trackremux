@@ -228,6 +228,11 @@ class FileExplorer:
                 1 for m in self.metadata.values() if getattr(m, "probed", False)
             )
 
+        # Seed donors cache with this file's path and duration
+        donor_cache = getattr(self.app, "donor_cache", None)
+        if donor_cache is not None:
+            donor_cache.register(media.path, media.duration)
+
         # Check for converted counterpart in background
         threading.Thread(target=self._check_converted_status, args=(filename,), daemon=True).start()
 
@@ -575,11 +580,21 @@ class FileExplorer:
                 size_str = format_size(size_mb, precision=1)
                 a_size_str = format_size(audio_size_mb, precision=1).replace(" ", "")
 
-                # Set DTS badge logic
-                has_dts = any(
-                    t.codec_type == "audio" and t.codec_name.lower() in MediaConverter.DTS_CODECS
-                    for t in audio_tracks
-                )
+                # Set HD Audio badge logic
+                highest_hd_audio = None
+                for t in audio_tracks:
+                    if t.codec_type == "audio":
+                        c_name = t.codec_name.lower()
+                        if c_name == "truehd":
+                            highest_hd_audio = "THD"
+                        elif c_name in ("pcm_bluray", "pcm_s16le", "pcm_s24le", "pcm_s32le"):
+                            if highest_hd_audio != "THD":
+                                highest_hd_audio = "PCM"
+                        elif c_name in ("dts", "dts-hd"):
+                            if highest_hd_audio not in ("THD", "PCM"):
+                                highest_hd_audio = "DTS"
+
+                has_dts = highest_hd_audio is not None
 
                 # Check for converted counterpart or temp status early for badge logic
                 is_converted = filename.startswith("converted_")
@@ -591,13 +606,13 @@ class FileExplorer:
 
                 dts_tag = "    "
                 if has_dts:
-                    dts_tag = " DTS"
+                    dts_tag = f" {highest_hd_audio}"
 
                     # If this file was already processed, peek into cache or probe it once
                     if has_converted:
                         if filename in self.dts_badge_cache:
                             if self.dts_badge_cache[filename]:
-                                dts_tag = "DTS>AC3"
+                                dts_tag = f"{highest_hd_audio}>AC3"
                         else:
                             # Not in cache, probe it asynchronously to prevent UI freeze
                             self.dts_badge_cache[filename] = False  # Default to false while probing
@@ -625,7 +640,7 @@ class FileExplorer:
                                             if any(
                                                 t.index == src_idx
                                                 and t.codec_name.lower()
-                                                in MediaConverter.DTS_CODECS
+                                                in MediaConverter.HD_CODECS
                                                 for t in tracks
                                             ):
                                                 is_t = True
@@ -713,7 +728,7 @@ class FileExplorer:
     def _draw_footer(self, height, width):
         # Footer - split into left and right sections
         mouse_status = "APP" if self.app.mouse_enabled else "TERM"
-        filter_tag = " DTS" if self.dts_filter else " All"
+        filter_tag = " HD Aud" if self.dts_filter else " All"
         sort_footer = f" Sort: [N]ame, [S]ize, [T]racks, [A]ud Size | [D] Filter:{filter_tag} "
 
         quit_label = "Back" if self.back_view else "Quit"

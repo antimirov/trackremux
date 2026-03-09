@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from trackremux.core.preview import MediaPreview
 
 from ..core.config import AppConfig
+from ..core.donor import DonorCache
 from ..core.models import OutputMode
 from ..core.scanner import GlobalScanner
 from .constants import APP_TIMEOUT_MS, KEY_CTRL_C
@@ -39,7 +40,7 @@ class TrackRemuxApp:
         self.config = AppConfig.load()
         self.settings = AppSettings()
         # Seed convert_audio from saved preference
-        if self.config.prefer_ac3_over_dts:
+        if self.config.prefer_ac3_over_hd:
             self.settings.convert_audio = True
 
         # Initialize colors
@@ -53,6 +54,9 @@ class TrackRemuxApp:
 
         # Initialize Global Scanner
         self.scanner = GlobalScanner()
+
+        # Initialize Donor Cache (populated by FileExplorer as files are scanned)
+        self.donor_cache = DonorCache()
 
     def run(self):
         try:

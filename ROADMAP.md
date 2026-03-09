@@ -13,6 +13,12 @@ Automatic detection and sequential processing of TV series and collections. Smar
 ### Cross-Platform Audio Preview (partial, v0.4.0)
 Audio previews use `afplay` on macOS with automatic `ffplay -nodisp` fallback on Linux. Windows PowerShell hooks remain TODO.
 
+### Intelligent HD Audio & Compatibility Guard (v0.9.0)
+Broadened DTS conditioning to **HD Audio** (TrueHD, DTS, PCM). Explorer UI dynamically badges high-tier codecs and handles broad HD filtering. Added `is_default` disposition protection to the profile engine to prevent auto-dropping primary audio tracks when secondary AC3 commentary exists. Robust frame-based ETA fallback for remux operations.
+
+### Donor Track Import / Hybrid Remuxing (v0.9.0)
+Import a dubbed audio track from a second file with automatic sync detection based on `ebur128` Loudness Envelopes. Features a built-in Donor File Picker overlay with automatic duration filtering (`[Len: %]`) and Bulk Deep Analysis (`[A]`) that exhaustively scans all donor audio tracks to find the perfect sub-millisecond sync offset without manual guesswork.
+
 ---
 
 ### Smart Defaults & Profile Editor (v0.7.0)
@@ -67,12 +73,38 @@ Introduced `OVERWRITE`, `REMOTE` (saves `converted_*` next to source), and `LOCA
 
 ---
 
+---
+
+### 10. Subtitle Offset Adjustment
+**Problem:** A subtitle track sourced from a different release is consistently shifted by a fixed number of seconds.
+
+**Solution:** In the Track Editor, `[` / `]` keys adjust the selected subtitle track offset by ±100ms. Live preview shows `Offset: +300ms`. Applied at mux time: SRT → timestamp rewrite, PGS → `ffmpeg -itsoffset`.
+
+See **[memory/subtitle_sync.md](memory/subtitle_sync.md)** for implementation details.
+
+### 12. Header-Only Metadata Edits ("Instant Save")
+**Problem:** Changing a language tag or title currently requires a full remux of a 20+ GB file.
+
+**Solution:** Use `ffmpeg`'s `-metadata` injection in a stream-copy pass for metadata-only changes (no audio/video content changes). This would be triggered automatically when the only changes the user made are:
+- Track title renames
+- Language tag edits
+- `default`/`forced` flag toggles
+
+### 13. Donor Scan / Library Health Check
+**Problem:** Large hoarded libraries often contain corrupted or truncated files that break playback.
+
+**Solution:** A background scan mode (`[H]`ealth) that runs `ffmpeg -v error -i file -f null -` across selected files and reports detected bitstream errors.
+
+---
+
 ## 🧊 Backlog / Ideas
 
+- **Dry Run / Export Mode**: Export a `.sh` batch script of all `ffmpeg` commands instead of running them. Run on NAS via SSH to eliminate SMB bottlenecks (see item 7 in Phase 3).
+- **Headless Automation**: `--headless --config profile.toml` daemon for watch-folder automation (see Phase 3 item 8).
 - **Undo/Restore Original**: `--restore` flag or TUI option to swap `converted_` back to original.
-- **Multi-Language Streams**: Support for `mul` / dual-audio tracks (complex mapping).
+- **Multi-Language Streams**: Support for `mul` / dual-audio tracks (complex channel mapping).
 - **Color Theme Support**: User-defined color pairs via config or `--theme dark/light/solarized`.
-- **Plugin System for Encoders**: Custom encoder profiles beyond `copy` (e.g., HEVC re-encode at CRF 20).
 - **Integration with *arr stack**: Webhook/API to notify Sonarr/Radarr after processing.
 - **Statistics Dashboard**: Track cumulative space saved, files processed, most common languages.
 - **Windows Audio Preview**: Native PowerShell media hooks for Windows environments.
+- **Modern TUI Migration**: Transition from `curses` to **Textual** for modal pop-ups and styling.

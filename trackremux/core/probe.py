@@ -66,6 +66,7 @@ class MediaProbe:
                     else None
                 ),
                 is_attached_pic=disposition.get("attached_pic", 0) == 1,
+                is_default=disposition.get("default", 0) == 1,
             )
 
 

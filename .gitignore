@@ -12,6 +12,7 @@ build/*
 converted_videos*
 
 # media files
+media_library*
 **/*.avi
 **/*.mkv
 **/*.mp4
@@ -29,3 +30,4 @@ converted_videos*
 # System files
 .DS_Store
 MEMORY.md
+memory/

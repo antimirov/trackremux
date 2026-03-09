@@ -36,19 +36,18 @@ Instead of wrestling with complex `ffmpeg` command-line arguments for every sing
 -   **Deep Track Inspection**:
     -   **Track Reordering**: Move tracks up/down with `Shift+Arrow` keys to set their index in the final file.
     -   **External Tracks**: Automatically detects and integrates external audio/subtitle files (even in `Audio/` or `Subs/` subfolders).
-    -   **Language Management**: Guesses 30+ languages from filenames (e.g. `dut.srt`) or supports manual setting via the `[L]` key.
-    -   **Smart Matching**: Automatically detects existing conversions and restores your previous track selections.
--   **Preview Capabilities**: Listen to audio tracks directly from the TUI (macOS `afplay` integration) to confirm contents before keeping them.
+    -   **Language Management**: Guesses 30+ language formats or supports manual setting via the `[L]` key.
+    -   **Donor Audio Track Import**: Press `[D]` to import fully synced, dubbed audio tracks directly from alternative movie releases sitting elsewhere in your library (Hybrid Remuxing). Built-in bulk `ebur128` deep analysis computes sub-millisecond sync offsets instantly without guesswork.
 -   **Intelligent Output Management**:
-    -   **Three Output Modes**: Choose between `[O]verwrite` (atomic in-place replacement), `[L]ocal` (save `converted_*` to CWD), or `[R]emote` (save `converted_*` next to source files).
+    -   **Three Output Modes**: Choose between `[O]verwrite` (atomic in-place replacement), `[L]`ocal (save `converted_*` to CWD), or `[R]`emote (save `converted_*` next to source files).
     -   **Smart Batch Output**: Batch conversions automatically create a `converted_<directory>/` folder with original filenames preserved, instead of prefixing every file.
     -   **NAS-Safe Atomic Swaps**: Overwrites are safely processed in a hidden `.trackremux_staging/` directory and shifted via instantaneous atomic swaps to avoid media server race conditions, keeping original files safely in `.trackremux_trash/` for recovery.
     -   **Read-Only Detection**: Automatically warns when the source filesystem is read-only, preventing failed Overwrite/Remote saves.
--   **Intelligent Audio Fallbacks (DTS/TrueHD → EAC3/AC3)**:
+-   **Intelligent HD Audio Fallbacks (THD/DTS → EAC3/AC3)**:
     -   Automatically transcode high-bitrate incompatible formats (DTS-HD MA, TrueHD, DTS) down to universally compatible `EAC3 5.1` (1024kbps) or `AC3 640k` via the `[C]` hotkey.
     -   Features a robust encoding safety net: if your version of `ffmpeg` encounters layout limitations (e.g. failing to encode 7.1 to EAC3), it automatically catches the failure and falls back to the next-best conversion format without breaking the batch.
-    -   Features a dynamic `DTS>AC3` badge directly inside the Explorer file list tracking conditionally encoded native AC3 streams.
-    -   Added `[D]` hotkey to explicitly filter media list views exclusively to files with DTS-encoded formats.
+    -   Features dynamic `THD`, `DTS`, or `PCM` badges directly inside the Explorer file list, including `DTS>AC3` etc. tracking conditionally encoded streams.
+    -   Added `[D]` hotkey to explicitly filter media list views exclusively to files with high-definition audio formats (TrueHD, DTS, PCM).
 -   **Smart Configurations & Profiles**:
     -   Build and utilize default setting profiles (`keep_langs`, `discard_langs`, `ac3` preference overrides).
     -   Interactive profile editor overlay via `[P]` — Enter to edit fields, cursor navigation, Enter to confirm and auto-save, Escape to discard changes.
@@ -151,7 +150,7 @@ trackremux "My Movie.mkv"
 | **PgUp / PgDn** | Scroll pages |
 | **Enter** | Open selected file in Editor |
 | **B** | Open Batch Selector (when batches detected) |
-| **D** | Toggle Filter: All / DTS only |
+| **D** | Toggle Filter: All / HD Audio only |
 | **M** | Toggle Mouse Support |
 | **R** | Force re-scan current directory |
 | **N / S / T / A** | Sort by **N**ame, **S**ize, **T**racks, **A**udio Size |
@@ -167,7 +166,7 @@ trackremux "My Movie.mkv"
 | **↑ / ↓** | Navigate Tracks |
 | **Shift+↑ / ↓** | Move selected track UP / DOWN |
 | **L** | Set Language (manual edit) |
-| **C** | Toggle DTS → AC3 audio conditioning |
+| **C** | Toggle HD Audio conditioning (THD/DTS → EAC3/AC3) |
 | **P** | Open Profile editor (keep/discard languages, AC3 preference) |
 | **A** | Apply saved profile to current file |
 | **M** | Toggle Mouse Support |
@@ -182,7 +181,10 @@ See [ROADMAP.md](ROADMAP.md) for the full feature roadmap. Highlights:
 - ✅ **In-Place Saving** — Overwrite / Local / Remote output modes — Completed in v0.7.0
 - ✅ **Audio Conditioning** — Flatten DTS-HD / TrueHD to AC3 for universal playback — Completed in v0.7.0
 - ✅ **Smart Defaults** — Auto-select tracks based on language config profiles — Completed in v0.7.0
+- ✅ **Hybrid Remuxing** — Donor Track Import with automatic `ebur128` sync detection — Completed in v0.9.0
 - ⚡ **Track Metadata** — Edit titles, set default/forced disposition flags
+- 🔤 **Subtitle Sync** — Shift subtitle tracks ±N ms directly in the TUI before muxing
+- 🏥 **Library Health Checks** — Detect corrupted bitstreams across large libraries
 - 🧊 **Dry Run / Export** — Generate `.sh` scripts for remote NAS execution
 
 ## 📝 License

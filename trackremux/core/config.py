@@ -27,7 +27,7 @@ class AppConfig:
 
     keep_langs: List[str] = field(default_factory=list)
     discard_langs: List[str] = field(default_factory=list)
-    prefer_ac3_over_dts: bool = False
+    prefer_ac3_over_hd: bool = False
 
     # ------------------------------------------------------------------ #
     # Persistence                                                          #
@@ -50,7 +50,7 @@ class AppConfig:
             "[preferences]\n",
             f"keep_langs = {_fmt_list(self.keep_langs)}\n",
             f"discard_langs = {_fmt_list(self.discard_langs)}\n",
-            f"prefer_ac3_over_dts = {str(self.prefer_ac3_over_dts).lower()}\n",
+            f"prefer_ac3_over_hd = {str(self.prefer_ac3_over_hd).lower()}\n",
         ]
         with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
             fh.writelines(lines)
@@ -64,30 +64,59 @@ class AppConfig:
     # Profile application                                                  #
     # ------------------------------------------------------------------ #
 
-    def matches(self, media_file: "MediaFile") -> List["Track"]:
-        """
-        Returns non-video tracks whose enabled state would *change* if the
-        profile were applied.  Empty list → profile has nothing to do here.
-        """
-        candidates = []
-        for t in media_file.tracks:
-            if t.codec_type == "video":
-                continue
-            lang = t.language or "und"
-            should_keep = self._should_keep(lang)
-            if should_keep is not None and t.enabled != should_keep:
-                candidates.append(t)
-        return candidates
-
-    def apply_to(self, media_file: "MediaFile") -> None:
-        """Toggle tracks on/off according to saved preferences."""
+    def get_target_states(self, media_file: "MediaFile") -> dict[int, bool]:
+        """Calculate the desired enabled state for each track based on the profile."""
+        states = {}
         for t in media_file.tracks:
             if t.codec_type == "video":
                 continue
             lang = t.language or "und"
             decision = self._should_keep(lang)
             if decision is not None:
-                t.enabled = decision
+                states[t.index] = decision
+            else:
+                states[t.index] = t.enabled
+
+        if self.prefer_ac3_over_hd:
+            from collections import defaultdict
+            enabled_audio_by_lang = defaultdict(list)
+            for t in media_file.tracks:
+                if t.codec_type == "audio" and states.get(t.index, t.enabled):
+                    lang = t.language or "und"
+                    enabled_audio_by_lang[lang].append(t)
+            
+            from .converter import MediaConverter
+            for lang, tracks in enabled_audio_by_lang.items():
+                # Only prefer AC3 if there is a *main* (default) AC3 track,
+                # not a commentary or other secondary AC3 track.
+                has_default_ac3 = any(
+                    t.codec_name.lower() == "ac3" and t.is_default for t in tracks
+                )
+                if has_default_ac3:
+                    # Disable HD codecs for this language since we have native main AC3
+                    for t in tracks:
+                        if t.codec_name.lower() in MediaConverter.HD_CODECS:
+                            states[t.index] = False
+        return states
+
+    def matches(self, media_file: "MediaFile") -> List["Track"]:
+        """
+        Returns non-video tracks whose enabled state would *change* if the
+        profile were applied. Empty list → profile has nothing to do here.
+        """
+        candidates = []
+        states = self.get_target_states(media_file)
+        for t in media_file.tracks:
+            if t.index in states and t.enabled != states[t.index]:
+                candidates.append(t)
+        return candidates
+
+    def apply_to(self, media_file: "MediaFile") -> None:
+        """Toggle tracks on/off according to saved preferences."""
+        states = self.get_target_states(media_file)
+        for t in media_file.tracks:
+            if t.index in states:
+                t.enabled = states[t.index]
 
     def _should_keep(self, lang: str) -> Optional[bool]:
         """Return True/False if the lang is covered by a rule, None otherwise."""
@@ -121,8 +150,8 @@ class AppConfig:
                     cfg.keep_langs = _parse_string_list(val)
                 elif key == "discard_langs":
                     cfg.discard_langs = _parse_string_list(val)
-                elif key == "prefer_ac3_over_dts":
-                    cfg.prefer_ac3_over_dts = val.lower() == "true"
+                elif key in ("prefer_ac3_over_hd", "prefer_ac3_over_dts"):
+                    cfg.prefer_ac3_over_hd = val.lower() == "true"
         return cfg
 
 

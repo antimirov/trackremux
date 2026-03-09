@@ -152,7 +152,7 @@ class ProgressView:
                 if not t.enabled:
                     continue
                 if t.codec_type == "audio":
-                    if t.codec_name.lower() in MediaConverter.DTS_CODECS:
+                    if t.codec_name.lower() in MediaConverter.HD_CODECS:
                         chain = MediaConverter.get_audio_fallback_chain(t)
                         self._dts_fallback_chains[a_out_idx] = chain
                     a_out_idx += 1
@@ -354,6 +354,10 @@ class ProgressView:
                             frame_pct = int((current_frame / self.total_frames) * 100)
                             if frame_pct > self.percent:
                                 self.percent = min(98, frame_pct)  # cap at 98, time-based takes priority
+                            # Derive current media time from frame for ETA.
+                            # out_time_us (below) will overwrite this with higher precision when available.
+                            if self.media_file.duration > 0:
+                                self._current_seconds = (current_frame / self.total_frames) * self.media_file.duration
                     elif key in ("out_time_ms", "out_time_us"):
                         try:
                             # ffmpeg -progress outputs time in MICROSECONDS for both

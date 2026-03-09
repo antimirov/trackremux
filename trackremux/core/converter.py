@@ -6,8 +6,8 @@ from .models import MediaFile
 
 
 class MediaConverter:
-    # Codec set of DTS variants that we transcode when convert_audio is on
-    DTS_CODECS = {"dts", "dts-hd", "truehd"}  # truehd kept for completeness
+    # Codec set of high-res audio variants that we transcode when convert_audio is on
+    HD_CODECS = {"dts", "dts-hd", "truehd", "pcm_bluray", "pcm_s16le", "pcm_s24le", "pcm_s32le"}
 
     # Channel-layout name → channel count
     LAYOUT_CHANNELS = {
@@ -77,27 +77,36 @@ class MediaConverter:
                          When None, the first (preferred) entry from the chain is used.
         convert_audio: when True, DTS audio tracks get transcoded per the fallback chain.
         """
-        # 1. Identify all unique source files
-        # The main file is always index 0
-        input_files = [media_file.path]
+        # 1. Identify all unique source files and their offsets.
+        # The main file is always index 0 with offset 0.
+        # input_files: list of (path, offset_seconds)
+        input_files: list[tuple[str, float]] = [(media_file.path, 0.0)]
 
-        # Helper to get input index for a path
-        def get_input_index(path):
+        # Helper to get or register input index for a path + offset.
+        def get_input_index(path, offset: float = 0.0):
             if path is None or path == media_file.path:
                 return 0
-            if path not in input_files:
-                input_files.append(path)
-            return input_files.index(path)
+            # Reuse existing entry if same path (take max offset seen for it).
+            for idx, (p, _o) in enumerate(input_files):
+                if p == path:
+                    # Update offset to max, so a track's offset wins.
+                    if abs(offset) > abs(_o):
+                        input_files[idx] = (path, offset)
+                    return idx
+            input_files.append((path, offset))
+            return len(input_files) - 1
 
-        # 2. Build inputs part of the command
+        # 2. Build inputs part of the command.
         cmd = ["ffmpeg", "-fflags", "+genpts", "-y"]
-        # Pre-scan tracks to add all necessary inputs
+        # Pre-scan enabled tracks to register all necessary inputs.
         for track in media_file.tracks:
             if track.enabled and track.source_path:
-                get_input_index(track.source_path)
+                get_input_index(track.source_path, track.offset_seconds)
 
-        for ip in input_files:
-            cmd.extend(["-i", ip])
+        for path, offset in input_files:
+            if abs(offset) > 0.001:
+                cmd.extend(["-itsoffset", f"{offset:.6f}"])
+            cmd.extend(["-i", path])
 
         # 3. Map tracks
         # Metadata indices in the output file
@@ -113,7 +122,7 @@ class MediaConverter:
                 continue
 
             # Determine input index and stream index
-            input_idx = get_input_index(track.source_path)
+            input_idx = get_input_index(track.source_path, track.offset_seconds)
 
             # Construct map: input_idx:stream_idx
             cmd.extend(["-map", f"{input_idx}:{track.index}"])
@@ -123,14 +132,15 @@ class MediaConverter:
                 # Set disposition for attached pictures (cover art)
                 if track.is_attached_pic:
                     cmd.extend([f"-disposition:v:{video_idx}", "attached_pic"])
-                cmd.extend([f"-metadata:s:v:{video_idx}", f"trackremux_id={track.index}"])
+                tr_id = track.trackremux_id if track.trackremux_id is not None else track.index
+                cmd.extend([f"-metadata:s:v:{video_idx}", f"trackremux_id={tr_id}"])
                 video_idx += 1
             elif track.codec_type == "audio":
                 if track.language:
                     cmd.extend([f"-metadata:s:a:{audio_idx}", f"language={track.language}"])
 
                 # Handling DTS to AC3 conversion metadata
-                if convert_audio and track.codec_name.lower() in MediaConverter.DTS_CODECS:
+                if convert_audio and track.codec_name.lower() in MediaConverter.HD_CODECS:
                     dts_audio_indices.append((audio_idx, track))
 
 
@@ -150,12 +160,14 @@ class MediaConverter:
                     # Pass through original title if not modifying audio
                     cmd.extend([f"-metadata:s:a:{audio_idx}", f"title={track.tags['title']}"])
 
-                cmd.extend([f"-metadata:s:a:{audio_idx}", f"trackremux_id={track.index}"])
+                tr_id = track.trackremux_id if track.trackremux_id is not None else track.index
+                cmd.extend([f"-metadata:s:a:{audio_idx}", f"trackremux_id={tr_id}"])
                 audio_idx += 1
             elif track.codec_type == "subtitle":
                 if track.language:
                     cmd.extend([f"-metadata:s:s:{subtitle_idx}", f"language={track.language}"])
-                cmd.extend([f"-metadata:s:s:{subtitle_idx}", f"trackremux_id={track.index}"])
+                tr_id = track.trackremux_id if track.trackremux_id is not None else track.index
+                cmd.extend([f"-metadata:s:s:{subtitle_idx}", f"trackremux_id={tr_id}"])
                 subtitle_idx += 1
 
         # 4. Codec selection
@@ -206,7 +218,7 @@ class MediaConverter:
             total_bitrate = 0
             for t in media_file.tracks:
                 if t.enabled:
-                    if convert_audio and t.codec_type == "audio" and t.codec_name.lower() in MediaConverter.DTS_CODECS:
+                    if convert_audio and t.codec_type == "audio" and t.codec_name.lower() in MediaConverter.HD_CODECS:
                         chain = MediaConverter.get_audio_fallback_chain(t)
                         tg_br = chain[0].get("bitrate", "640k")
                         total_bitrate += int(tg_br.replace("k", "000"))
@@ -219,7 +231,7 @@ class MediaConverter:
             if not track.enabled:
                 if track.bit_rate:
                     size_diff -= int((track.bit_rate * media_file.duration) / 8)
-            elif convert_audio and track.codec_type == "audio" and track.codec_name.lower() in MediaConverter.DTS_CODECS:
+            elif convert_audio and track.codec_type == "audio" and track.codec_name.lower() in MediaConverter.HD_CODECS:
                 # Track is kept but transcoded; subtract original size, add target size
                 target_chain = MediaConverter.get_audio_fallback_chain(track)
                 target_bitrate_str = target_chain[0].get("bitrate", "640k")
