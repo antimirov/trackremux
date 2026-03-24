@@ -28,7 +28,8 @@ Instead of wrestling with complex `ffmpeg` command-line arguments for every sing
 -   **Batch Processing**: Automatically detects and processes TV shows/series/collections sequentially.
     -   **Smart Detection**: Recognizes series patterns (S01E01, 1x01, Ep01) and groups by season.
     -   **Structural Fingerprinting**: Groups files with identical track structure.
-    -   **Unified Editing**: Edit one file, apply changes to all files in the batch.
+    -   **Unified Editing**: Edit one file, and automatically apply the same track selections and **logical reordering** (e.g., move Japanese audio to bottom) across the entire batch regardless of internal stream ID numbering.
+    -   **Seamless Workflow**: Returning from a batch conversion automatically refreshes the selector view with updated metadata, allowing for a continuous "process next batch" rhythm.
 -   **Rich Meta-data Explorer**:
     -   Displays file sizes, track counts, and audio languages at a glance.
     -   **Visual Status Indicators**: Instantly spot files that have already been converted (Green size) or are currently processing (Dim Yellow).
@@ -37,6 +38,8 @@ Instead of wrestling with complex `ffmpeg` command-line arguments for every sing
     -   **Track Reordering**: Move tracks up/down with `Shift+Arrow` keys to set their index in the final file.
     -   **External Tracks**: Automatically detects and integrates external audio/subtitle files (even in `Audio/` or `Subs/` subfolders).
     -   **Language Management**: Guesses 30+ language formats or supports manual setting via the `[L]` key.
+    -   **Smart Language Inference**: Automatically recovers missing track languages from stream titles (e.g. "Russian") during scans—perfect for legacy AVI collections where language tags are often missing.
+    -   **Metadata Persistence Bridge**: When you manually set a language for an AVI track, it's also saved into the stream title, ensuring the setting "sticks" and survives re-probes.
     -   **Donor Audio Track Import**: Press `[D]` to import fully synced, dubbed audio tracks directly from alternative movie releases sitting elsewhere in your library (Hybrid Remuxing). Built-in bulk `ebur128` deep analysis computes sub-millisecond sync offsets instantly without guesswork.
 -   **Intelligent Output Management**:
     -   **Three Output Modes**: Choose between `[O]verwrite` (atomic in-place replacement), `[L]`ocal (save `converted_*` to CWD), or `[R]`emote (save `converted_*` next to source files).

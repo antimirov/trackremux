@@ -16,6 +16,20 @@ class BatchGroup:
     def count(self) -> int:
         return len(self.files)
 
+    @property
+    def display_fingerprint(self) -> str:
+        """Extracts the language summary from the fingerprint."""
+        # Signature: V:1|A:4(rus,rus,eng,jpn)|S:0()
+        import re
+        m = re.findall(r"\((.*?)\)", self.fingerprint)
+        if m:
+            # Result: (rus,rus,eng,jpn), ()
+            # Join non-empty ones
+            langs = [x for x in m if x]
+            if langs:
+                return f"({', '.join(langs)})"
+        return ""
+
 
 class BatchDetector:
     # Regex patterns to detect series/season info
@@ -47,8 +61,8 @@ class BatchDetector:
         # Language order is preserved for strict mapping.
         # Changing order would break batch logic for mismatched files.
 
-        a_langs = ",".join([t.language or "und" for t in a_tracks])
-        s_langs = ",".join([t.language or "und" for t in s_tracks])
+        a_langs = ",".join([t.display_language for t in a_tracks])
+        s_langs = ",".join([t.display_language for t in s_tracks])
 
         # Fingerprint consists of track count and language order.
 
@@ -77,8 +91,6 @@ class BatchDetector:
 
         # Now analyze naming within each fingerprint group
         for fp, group_files in by_fingerprint.items():
-            if len(group_files) < 2:
-                continue
 
             # Fallback: group files within the same folder if structure matches.
             # Implication: The Scanner usually passes files from one folder.
@@ -122,15 +134,15 @@ class BatchDetector:
 
             # Add valid groups
             for bg in series_groups.values():
-                if bg.count >= 2:
+                if bg.count >= 1:
                     batches.append(bg)
 
             # Evaluate remaining files for generic batching if they share a structure.
-            # Consider Generic Batch if naming is similar.
-            # For now, simplistic approach: if we have >=3 files with SAME structure in one folder, it's a batch.
-            if fallback_group.count >= 3:
-                # Try to determine common prefix
-                fallback_group.name = f"Generic Batch ({fallback_group.count} files)"
+            if fallback_group.count >= 1:
+                if fallback_group.count == 1:
+                    fallback_group.name = fallback_group.files[0].filename
+                else:
+                    fallback_group.name = f"Generic Batch ({fallback_group.count})"
                 batches.append(fallback_group)
 
         return batches

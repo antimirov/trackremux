@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.2] - 2026-03-24
+
+### Fixed
+- **Smart Language Inference**: Using stream titles to automatically infer track languages (e.g., "Japanese" -> `jpn`) when container metadata is missing or set to `und`.
+- **AVI Metadata Bridge**: Automatically syncs chosen track languages into stream titles for metadata persistence in containers like AVI.
+- **Seamless Batch Workflow**: The TUI now automatically returns to the updated `Batch Selection` menu after conversion, enabling a "process next batch" without manual rescans.
+- **Improved Batch Fingerprinting**: Refined batch detection to include track-language sequence, preventing incorrect grouping.
+- **Logical Batch Reordering**: Overhauled batch processing to use logical track-type mapping (e.g., "1st audio track"), ensuring precise reordering across entire batches.
+- **Robust File Finalization**: Added exponential backoff retries for file moves to handle transient filesystem locks on network shares.
+- **Legacy Tag Recovery**: Improved probe logic for legacy `cp1251` and `koi8-r` encodings.
+- **Unicode Robustness**: Standardized internal decoding to handle arbitrary bytes safely, preventing crashes.
+
 ## [0.9.1] - 2026-03-09
 
 ### Fixed

@@ -22,11 +22,25 @@ class MediaProbe:
             file_path,
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True)
         if result.returncode != 0:
-            raise Exception(f"ffprobe failed: {result.stderr}")
+            err_msg = result.stderr.decode("utf-8", errors="replace")
+            raise Exception(f"ffprobe failed: {err_msg}")
 
-        data = json.loads(result.stdout)
+        try:
+            text_data = result.stdout.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                # Fallback to KOI8-R for legacy Russian tags
+                text_data = result.stdout.decode("koi8-r")
+            except UnicodeDecodeError:
+                try:
+                    # Fallback to CP1251 for legacy Cyrillic tags
+                    text_data = result.stdout.decode("cp1251")
+                except UnicodeDecodeError:
+                    text_data = result.stdout.decode("utf-8", errors="replace")
+
+        data = json.loads(text_data)
 
         format_data = data.get("format", {})
         streams_data = data.get("streams", [])

@@ -34,6 +34,7 @@ class BatchProgressView:
 
         # Batch State
         self.files_to_process = list(batch_group.files)
+        self.processed_filenames = []
         self.current_idx = 0
         self.results = []  # List of status strings/results
         self.failed_files = []
@@ -62,23 +63,52 @@ class BatchProgressView:
 
 
     def _apply_template(self, target_file):
-        """Copies track config from template to target file."""
-        # Structure guaranteed by fingerprints, but index bounds are checked for safety.
-        template_tracks = self.template_media.tracks
+        """Re-orders and configures tracks in target_file based on the template."""
+        # Split tracks by type to establish logical order (e.g. 1st audio, 2nd audio)
+        template_by_type = {
+            "video": [t for t in self.template_media.tracks if t.codec_type == "video"],
+            "audio": [t for t in self.template_media.tracks if t.codec_type == "audio"],
+            "subtitle": [t for t in self.template_media.tracks if t.codec_type == "subtitle"],
+        }
+        target_by_type = {
+            "video": [t for t in target_file.tracks if t.codec_type == "video"],
+            "audio": [t for t in target_file.tracks if t.codec_type == "audio"],
+            "subtitle": [t for t in target_file.tracks if t.codec_type == "subtitle"],
+        }
 
-        # We need to map by index to be robust-ish
-        # Or just zip? Fingerprint guarantees lengths match.
-        for i, t_track in enumerate(target_file.tracks):
-            if i < len(template_tracks):
-                tmpl = template_tracks[i]
+        # Create a mapping from each template track object to its logical position (index in typed list)
+        tmpl_logical_pos = {}
+        for ctype, tracks in template_by_type.items():
+            for i, t in enumerate(tracks):
+                tmpl_logical_pos[id(t)] = (ctype, i)
+
+        new_tracks = []
+        for tmpl in self.template_media.tracks:
+            ctype, pos = tmpl_logical_pos[id(tmpl)]
+            
+            # Find the corresponding track in the target file by same type and position
+            target_typed_list = target_by_type.get(ctype, [])
+            if pos < len(target_typed_list):
+                t_track = target_typed_list[pos]
+                
+                # Apply metadata changes
                 t_track.enabled = tmpl.enabled
                 t_track.language = tmpl.language
-                # Propagate manual language override? Yes.
+                t_track.tags = dict(tmpl.tags)
+                
+                new_tracks.append(t_track)
 
-                # External tracks?
-                # If template has external track, target might not have it attached yet?
-                # fingerprint wouldn't match, so they wouldn't be in this batch.
-                pass
+        # If we successfully re-mapped all tracks, update the target file
+        if len(new_tracks) == len(target_file.tracks):
+            target_file.tracks = new_tracks
+        else:
+            # Absolute fallback: copy by index if logic fails
+            for i, t_track in enumerate(target_file.tracks):
+                if i < len(self.template_media.tracks):
+                    tmpl = self.template_media.tracks[i]
+                    t_track.enabled = tmpl.enabled
+                    t_track.language = tmpl.language
+                    t_track.tags = dict(tmpl.tags)
 
     def _run_batch(self):
         try:
@@ -145,6 +175,7 @@ class BatchProgressView:
                             try:
                                 atomic_finalize(staging_output, output_path, self.output_mode)
                                 self.results.append(f"SUCCESS: {fname}")
+                                self.processed_filenames.append(fname)
                             except Exception as e:
                                 self.results.append(f"ERROR moving {fname}: {e}")
                                 self.failed_files.append(f)
@@ -341,16 +372,22 @@ class BatchProgressView:
         if self.done:
             if key not in (curses.KEY_ENTER, 10, 13, KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER):
                 return
-            # Navigate back to the FileExplorer, skipping intermediate views if possible.
-            if hasattr(self.back_view, "back_view") and self.back_view.back_view:
-                target = self.back_view.back_view
-                # If target is BatchSelector, go one more up
-                if target.__class__.__name__ == "BatchSelectorView":
-                    target = target.back_view
+            
+            # Navigate back, skipping the intermediate Editor if possible
+            target = self.back_view
+            if hasattr(target, "back_view") and target.back_view:
+                target = target.back_view
+            
+            # Find the explorer for the refresh call
+            explorer = target
+            if explorer.__class__.__name__ == "BatchSelectorView":
+                explorer = explorer.explorer
 
-                self.app.switch_view(target)
-            else:
-                self.app.switch_view(None)
+            # Trigger refresh on explorer before switching
+            if hasattr(explorer, "refresh_metadata") and self.processed_filenames:
+                explorer.refresh_metadata(self.processed_filenames)
+
+            self.app.switch_view(target)
             return
 
         if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC):

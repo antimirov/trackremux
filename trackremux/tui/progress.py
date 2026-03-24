@@ -82,20 +82,35 @@ def atomic_finalize(staging_path: str, final_path: str, output_mode: OutputMode)
 
     Falls back to shutil.move if os.rename fails (cross-volume).
     """
+    def robust_move(src, dst):
+        """Try to move src to dst with retries for busy/locked files."""
+        max_tries = 5
+        for i in range(max_tries):
+            try:
+                os.rename(src, dst)
+                return
+            except OSError as e:
+                # [Errno 22] Invalid argument or [Errno 16] Resource busy
+                if e.errno in (22, 16) and i < max_tries - 1:
+                    time.sleep(1.0 * (i + 1))
+                    continue
+                try:
+                    shutil.move(src, dst)
+                    return
+                except OSError as e2:
+                    if e2.errno in (22, 16) and i < max_tries - 1:
+                        time.sleep(1.0 * (i + 1))
+                        continue
+                    raise e2
+
     if output_mode == OutputMode.OVERWRITE and os.path.exists(final_path):
         # Move original to trash (same volume → instant)
         trash_dir = os.path.join(os.path.dirname(final_path), TRASH_DIR)
         os.makedirs(trash_dir, exist_ok=True)
         trash_path = os.path.join(trash_dir, os.path.basename(final_path))
-        try:
-            os.rename(final_path, trash_path)
-        except OSError:
-            shutil.move(final_path, trash_path)
+        robust_move(final_path, trash_path)
 
-    try:
-        os.rename(staging_path, final_path)
-    except OSError:
-        shutil.move(staging_path, final_path)
+    robust_move(staging_path, final_path)
 
     # Clean up empty staging directory
     staging_dir = os.path.dirname(staging_path)
@@ -539,6 +554,13 @@ class ProgressView:
         if self.done:
             # Pass success status back to TrackEditor
             self.back_view.status_message = self.status
+            
+            # If successful, trigger a metadata refresh on the explorer so the browser stays in sync
+            if self.success and hasattr(self.back_view, "back_view"):
+                explorer = self.back_view.back_view
+                if hasattr(explorer, "refresh_metadata"):
+                    explorer.refresh_metadata([self.media_file.filename])
+                    
             self.app.switch_view(self.back_view)
             return
 

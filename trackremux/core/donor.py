@@ -93,7 +93,7 @@ class DonorAligner:
         ]
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=60
+                cmd, capture_output=True, text=True, errors="replace", timeout=60
             )
             output = result.stderr  # ebur128 writes to stderr
         except Exception:

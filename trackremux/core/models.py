@@ -44,6 +44,20 @@ class Track:
         )
 
     @property
+    def display_language(self) -> str:
+        """Returns the language code, with smart inference from title if needed."""
+        lang = self.language or "und"
+        if lang == "und" and self.tags.get("title"):
+            title_lower = self.tags["title"].lower()
+            if "русский" in title_lower or "rus" in title_lower:
+                return "rus"
+            elif "japanese" in title_lower or "jpn" in title_lower:
+                return "jpn"
+            elif "english" in title_lower or "eng" in title_lower:
+                return "eng"
+        return lang
+
+    @property
     def display_info(self) -> str:
         if self.codec_type == "video":
             hdr_info = ""
@@ -51,7 +65,8 @@ class Track:
                 hdr_info = ", HDR"
             return f"Format: {self.codec_name.upper()}{hdr_info}, {self.width}x{self.height}"
         elif self.codec_type == "audio":
-            lang = self.language or "und"
+            lang = self.display_language
+            
             # Show DTS-HD MA label when applicable
             codec_label = self.codec_name.upper()
             if self.is_dts_hd_ma:
@@ -63,11 +78,19 @@ class Track:
                     ch_str += f" ({self.channels}ch)"
             else:
                 ch_str = f"{self.channels or '?'}ch"
-            return f"Language: {lang}, Format: {codec_label}, Channels: {ch_str}"
+            
+            title_str = ""
+            if self.tags.get("title"):
+                title_str = f" \"{self.tags['title']}\""
+            
+            return f"Language: {lang}, Format: {codec_label}, Channels: {ch_str}{title_str}"
 
         elif self.codec_type == "subtitle":
-            lang = self.language or "und"
-            return f"Language: {lang}, Format: {self.codec_name.upper()}"
+            lang = self.display_language
+            title_str = ""
+            if self.tags.get("title"):
+                title_str = f" \"{self.tags['title']}\""
+            return f"Language: {lang}, Format: {self.codec_name.upper()}{title_str}"
         return f"Format: {self.codec_name}"
 
 

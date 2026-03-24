@@ -139,13 +139,24 @@ class MediaConverter:
                 if track.language:
                     cmd.extend([f"-metadata:s:a:{audio_idx}", f"language={track.language}"])
 
+                # Persistence fallback: containers like AVI don't support language tags well.
+                # We ensure the title contains the language so our smart inference picks it up on re-probe.
+                title = track.tags.get("title", "")
+                if track.language and track.language != "und":
+                    lang_label = track.language.upper()
+                    if lang_label not in title.upper():
+                        if title:
+                            title = f"{title} ({lang_label})"
+                        else:
+                            # Map codes to Names for better title readability
+                            names = {"jpn": "Japanese", "rus": "Russian", "eng": "English"}
+                            title = names.get(track.language, lang_label)
+
                 # Handling DTS to AC3 conversion metadata
                 if convert_audio and track.codec_name.lower() in MediaConverter.HD_CODECS:
                     dts_audio_indices.append((audio_idx, track))
 
-
                     # Rewrite the title if it contains DTS
-                    title = track.tags.get("title", "")
                     if title:
                         # Replace 'DTS' / 'DTS-HD' with 'AC3'
                         new_title = re.sub(r"(?i)\bdts(?:-hd)?\b", "AC3", title)
@@ -156,9 +167,9 @@ class MediaConverter:
 
                         cmd.extend([f"-metadata:s:a:{audio_idx}", f"title={new_title}"])
 
-                elif "title" in track.tags:
-                    # Pass through original title if not modifying audio
-                    cmd.extend([f"-metadata:s:a:{audio_idx}", f"title={track.tags['title']}"])
+                elif title:
+                    # Pass through original or synced title
+                    cmd.extend([f"-metadata:s:a:{audio_idx}", f"title={title}"])
 
                 tr_id = track.trackremux_id if track.trackremux_id is not None else track.index
                 cmd.extend([f"-metadata:s:a:{audio_idx}", f"trackremux_id={tr_id}"])
@@ -166,6 +177,21 @@ class MediaConverter:
             elif track.codec_type == "subtitle":
                 if track.language:
                     cmd.extend([f"-metadata:s:s:{subtitle_idx}", f"language={track.language}"])
+
+                # Persistence fallback for subtitles
+                title = track.tags.get("title", "")
+                if track.language and track.language != "und":
+                    lang_label = track.language.upper()
+                    if lang_label not in title.upper():
+                        if title:
+                            title = f"{title} ({lang_label})"
+                        else:
+                            names = {"jpn": "Japanese", "rus": "Russian", "eng": "English"}
+                            title = names.get(track.language, lang_label)
+
+                if title:
+                    cmd.extend([f"-metadata:s:s:{subtitle_idx}", f"title={title}"])
+
                 tr_id = track.trackremux_id if track.trackremux_id is not None else track.index
                 cmd.extend([f"-metadata:s:s:{subtitle_idx}", f"trackremux_id={tr_id}"])
                 subtitle_idx += 1
@@ -273,6 +299,7 @@ class MediaConverter:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            errors="replace",
             bufsize=1,  # Line buffered
         )
         return process

@@ -216,6 +216,21 @@ class FileExplorer:
         # We don't need a lock for UI read unless we want to be super safe
         self.batches = new_batches
 
+    def refresh_metadata(self, filenames):
+        """Forces a re-probe of specifically named files."""
+        tasks = []
+        for f in filenames:
+            with self.metadata_lock:
+                if f in self.metadata:
+                    if getattr(self.metadata[f], "probed", False):
+                        self.probed_count -= 1
+                    self.metadata[f].probed = False
+            full_path = os.path.join(self.path, f)
+            tasks.append((full_path, lambda p, m, fname=f: self._on_probe_complete(fname, m)))
+        
+        if tasks:
+            self.app.scanner.add_priority_items(tasks, force=True)
+
     def _on_probe_complete(self, filename, media):
         """Callback from global scanner when probing is done."""
         with self.metadata_lock:
@@ -574,7 +589,7 @@ class FileExplorer:
                     for t in audio_tracks
                     if t.bit_rate
                 )
-                langs = ",".join(set(t.language for t in audio_tracks if t.language)) or "und"
+                langs = ",".join([t.display_language for t in audio_tracks if t.display_language]) or "und"
                 size_mb = media.size_bytes / 1024 / 1024
 
                 size_str = format_size(size_mb, precision=1)
@@ -789,7 +804,7 @@ class FileExplorer:
         elif key in (KEY_B_LOWER, KEY_B_UPPER):
             # Enter Batch Mode
             if self.batches:
-                self.app.switch_view(BatchSelectorView(self.app, self.batches, back_view=self))
+                self.app.switch_view(BatchSelectorView(self.app, self))
         elif key in (KEY_N_LOWER, KEY_N_UPPER):
             if self.sort_mode == "name":
                 self.sort_reverse = not self.sort_reverse
