@@ -6,8 +6,9 @@ import time
 from ..core.converter import MediaConverter
 from ..core.history import copy_to_clipboard, save_command
 from ..core.models import OutputMode
-from .constants import KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER
+from .constants import KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER, KEY_HELP, KEY_H_LOWER, KEY_H_UPPER
 from .formatters import format_duration
+from .help import HelpView
 from .progress import atomic_finalize, resolve_batch_output_path, resolve_staging_path
 
 
@@ -347,9 +348,9 @@ class BatchProgressView:
 
         # Footer
         if self.done:
-            footer = " [ENTER] Return to Explorer | [C] Copy last command "
+            footer = " [ENTER] Return | [?] Help | [C] Copy "
         else:
-            footer = " [Q/ESC] Cancel Batch | [C] Copy last command "
+            footer = " [Q/ESC] Cancel | [?] Help | [C] Copy "
 
         self.app.stdscr.addstr(
             height - 1, 0, footer.center(width)[: width - 1], curses.color_pair(3)
@@ -367,6 +368,10 @@ class BatchProgressView:
                 )
                 ok = copy_to_clipboard(" ".join(last_cmd))
                 self._copy_status = "Copied!" if ok else "Copy failed"
+            return
+
+        if key in (KEY_HELP, KEY_H_LOWER, KEY_H_UPPER):
+            self.app.switch_view(HelpView(self.app, "BatchProgressView", back_view=self))
             return
 
         if self.done:

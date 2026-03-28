@@ -8,8 +8,12 @@ from ..core.batch import BatchDetector
 from ..core.converter import MediaConverter
 from ..core.probe import MediaProbe
 from .batch_selector import BatchSelectorView
+from .help import HelpView
 from .constants import (
     FILE_LIST_Y_OFFSET,
+    KEY_HELP,
+    KEY_H_LOWER,
+    KEY_H_UPPER,
     KEY_A_LOWER,
     KEY_A_UPPER,
     KEY_B_LOWER,
@@ -749,7 +753,7 @@ class FileExplorer:
         quit_label = "Back" if self.back_view else "Quit"
         mouse_footer = f"[M] Mouse: {mouse_status}"
         batch_opt = "[B]atch | " if self.batches else ""
-        action_footer = f"[ENTER] Open | {batch_opt}[R]escan | [Q/ESC] {quit_label} "
+        action_footer = f"[?] Help | [ENTER] Open | {batch_opt}[R]escan | [Q/ESC] {quit_label} "
 
         # Draw left-aligned sort section
         left_text = sort_footer[: width - 1]
@@ -834,6 +838,8 @@ class FileExplorer:
             # Reset selection so we don't point at an out-of-range index
             self.selected_idx = 0
             self.scroll_idx = 0
+        elif key in (KEY_HELP, KEY_H_LOWER, KEY_H_UPPER):
+            self.app.switch_view(HelpView(self.app, "FileExplorer", back_view=self))
         elif key == curses.KEY_UP:
             if self.selected_idx > 0:
                 self.selected_idx -= 1
@@ -890,7 +896,8 @@ class FileExplorer:
                     quit_label = "Back" if self.back_view else "Quit"
                     mouse_footer = f"[M] Mouse: {mouse_status}"
                     batch_opt = "[B]atch | " if self.batches else ""
-                    action_footer = f"[ENTER] Open | {batch_opt}[R]escan | [Q/ESC] {quit_label} "
+                    help_opt = "[?] Help | "
+                    action_footer = f"{help_opt}[ENTER] Open | {batch_opt}[R]escan | [Q/ESC] {quit_label} "
                     right_text = f" {mouse_footer} | {action_footer}"
 
                     # Use dynamic position detection for all buttons
@@ -921,6 +928,7 @@ class FileExplorer:
                     # Check right section buttons
                     right_start = max(len(sort_footer) + 2, width - len(right_text))
                     buttons_right = [
+                        ("[?]", KEY_HELP),
                         ("[M]", KEY_M_LOWER),
                         ("[B]atch", KEY_B_LOWER),
                         ("[ENTER]", KEY_ENTER),

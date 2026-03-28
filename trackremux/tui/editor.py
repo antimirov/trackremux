@@ -12,6 +12,9 @@ from ..core.probe import MediaProbe
 from .batch_progress import BatchProgressView
 from .constants import (
     APP_TIMEOUT_MS,
+    KEY_HELP,
+    KEY_H_LOWER,
+    KEY_H_UPPER,
     KEY_A_LOWER,
     KEY_A_UPPER,
     KEY_C_LOWER,
@@ -37,6 +40,7 @@ from .constants import (
     TRACK_LIST_Y_OFFSET,
 )
 from .formatters import format_duration, format_size
+from .help import HelpView
 from .progress import ProgressView
 
 
@@ -573,7 +577,7 @@ class TrackEditor:
         else:
             footer = (
                 f" [SPACE] Toggle | [ENTER] Play | [L] Lang | [Shift+↑/↓] Reorder"
-                f" | [C] {audio_tag} | [D] Donor | [S] Save | [P] Profile | [M] Mouse:{mouse_status} | [Q/ESC] Back "
+                f" | [C] {audio_tag} | [D] Donor | [?] Help | [S] Save | [P] Profile | [M] Mouse:{mouse_status} | [Q/ESC] Back "
             )
 
         self.app.stdscr.addstr(
@@ -869,6 +873,7 @@ class TrackEditor:
                         ("[C]", KEY_C_LOWER),
                         ("[S]", KEY_S_LOWER),
                         ("[P]", KEY_P_LOWER),
+                        ("[?]", KEY_HELP),
                         ("[M]", KEY_M_LOWER),
                         ("[Q/ESC]", KEY_Q_LOWER),
                         ("[Q]", KEY_Q_LOWER),
@@ -898,6 +903,8 @@ class TrackEditor:
                 len(self.media_file.tracks) - 1,
                 self.selected_idx + (height - TRACK_EDITOR_INFO_HEIGHT),
             )
+        elif key in (KEY_HELP, KEY_H_LOWER, KEY_H_UPPER):
+            self.app.switch_view(HelpView(self.app, "TrackEditor", back_view=self))
         elif key == curses.KEY_HOME:
             self.selected_idx = 0
         elif key == curses.KEY_END:

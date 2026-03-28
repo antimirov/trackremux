@@ -7,8 +7,9 @@ import time
 from ..core.converter import MediaConverter
 from ..core.history import copy_to_clipboard, save_command
 from ..core.models import OutputMode
-from .constants import KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER
+from .constants import KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER, KEY_HELP, KEY_H_LOWER, KEY_H_UPPER
 from .formatters import format_duration, format_size
+from .help import HelpView
 
 
 # Hidden directory names used for staging and trash
@@ -103,14 +104,30 @@ def atomic_finalize(staging_path: str, final_path: str, output_mode: OutputMode)
                         continue
                     raise e2
 
+    trash_path = None
     if output_mode == OutputMode.OVERWRITE and os.path.exists(final_path):
-        # Move original to trash (same volume → instant)
+        # Move original to trash temporarily (same volume → instant rename)
         trash_dir = os.path.join(os.path.dirname(final_path), TRASH_DIR)
         os.makedirs(trash_dir, exist_ok=True)
         trash_path = os.path.join(trash_dir, os.path.basename(final_path))
         robust_move(final_path, trash_path)
 
     robust_move(staging_path, final_path)
+
+    # Auto-delete trash — the swap succeeded so the original is no longer needed
+    if trash_path and os.path.exists(trash_path):
+        try:
+            os.remove(trash_path)
+        except OSError:
+            pass
+    # Remove trash dir if now empty
+    if trash_path:
+        trash_dir = os.path.dirname(trash_path)
+        try:
+            if os.path.isdir(trash_dir) and not os.listdir(trash_dir):
+                os.rmdir(trash_dir)
+        except OSError:
+            pass
 
     # Clean up empty staging directory
     staging_dir = os.path.dirname(staging_path)
@@ -220,8 +237,7 @@ class ProgressView:
                 if codec_overrides:
                     labels = [v["label"] for v in codec_overrides.values()]
                     self.current_codec_label = " + ".join(dict.fromkeys(labels))
-                    attempt_num = sum(chain_pos.values()) + len(chain_pos)
-                    self.status = f"Attempting {self.current_codec_label}..."
+                    self.status = f"Encoding: {self.current_codec_label}..."
 
                 self.ffmpeg_cmd = MediaConverter.build_ffmpeg_command(
                     self.media_file, self.staging_path,
@@ -407,32 +423,27 @@ class ProgressView:
         self.app.stdscr.erase()
         height, width = self.app.stdscr.getmaxyx()
 
-        # Header
+        # Header bar
         self.app.stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
         self.app.stdscr.addstr(0, 0, " " * width)
         self.app.stdscr.addstr(0, 1, "[Q/ESC] CANCEL", curses.color_pair(5))
         if width > 10:
             self.app.stdscr.addstr(0, width - 4, "[X]", curses.color_pair(5))
-
         label = " Converting: "
         fname = f"{self.media_file.filename} "
         full_header_len = len(label) + len(fname)
-
         if full_header_len < width - 20:
             start_x = (width - full_header_len) // 2
             self.app.stdscr.addstr(0, start_x, label, curses.color_pair(1) | curses.A_BOLD)
             self.app.stdscr.addstr(0, start_x + len(label), fname, curses.A_DIM)
-
         self.app.stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
 
-        # Output Info — codec label comes from the fallback chain tracker
+        # Output target info row
         mode_label = self.output_mode.value.upper()
         if self.convert_audio and self.current_codec_label:
             audio_label = f" | Audio: {self.current_codec_label}"
         elif self.convert_audio:
-            # Fallback: scan cmd if label not yet set
-            _codec = "AC3"
-            _bitrate = "640k"
+            _codec, _bitrate = "AC3", "640k"
             for _i, _arg in enumerate(self.ffmpeg_cmd):
                 if _arg.startswith("-c:a:"):
                     _codec = self.ffmpeg_cmd[_i + 1].upper() if _i + 1 < len(self.ffmpeg_cmd) else _codec
@@ -445,102 +456,81 @@ class ProgressView:
         target_info = f" [{mode_label}] → {self.output_name}{audio_label} "
         self.app.stdscr.addstr(1, 0, target_info.center(width), curses.A_BOLD)
 
-        # Codec attempt history (shown as a dim row when there were multiple attempts)
+        # Codec attempt history (only when there were multiple attempts / fallbacks)
+        row = 2
         if self.codec_attempts:
             attempts_str = " | ".join(self.codec_attempts)
-            self.app.stdscr.addstr(2, 0, f" {attempts_str} ".center(width)[:width - 1], curses.A_DIM)
+            self.app.stdscr.addstr(row, 0, f" {attempts_str} ".center(width)[:width - 1], curses.A_DIM)
+            row += 1
 
+        # Spacer
+        row += 1
 
-        # Command (Wrapped)
-        self.app.stdscr.addstr(3, 0, " Command: ", curses.color_pair(1) | curses.A_BOLD)
-        cmd_str = " ".join(self.ffmpeg_cmd)
+        # Size info
+        size_info = f" Est. {format_size(self.estimated_size_mb)}  →  Current: {format_size(self.actual_size_mb)} "
+        self.app.stdscr.addstr(row, 0, size_info.center(width), curses.color_pair(2))
+        row += 1
 
-        y_cmd = 4
-        max_cmd_lines = 3
-        curr_cmd = cmd_str
-        for _ in range(max_cmd_lines):
-            if not curr_cmd or y_cmd >= height - 10:
-                break
-            line_part = curr_cmd[: width - 4]
-            self.app.stdscr.addstr(y_cmd, 2, line_part, curses.A_DIM | curses.A_ITALIC)
-            curr_cmd = curr_cmd[width - 4 :]
-            y_cmd += 1
-
-        y_offset = y_cmd + 1
-
-        # Status & Size
-        size_info = f" Est. file size: {format_size(self.estimated_size_mb)} | Current: {format_size(self.actual_size_mb)} "
-        self.app.stdscr.addstr(y_offset, 0, size_info.center(width), curses.color_pair(2))
-
-        # ETA — use actual media-time-based speed for accurate estimate
+        # ETA (only while running)
         elapsed = time.time() - self.start_time
         if self.done and self.end_time:
             elapsed = self.end_time - self.start_time
-
         if self.percent > 0 and not self.done:
             cur_sec = self._current_seconds
             dur = self.media_file.duration
             if cur_sec > 0 and elapsed > 0 and dur > 0:
-                # media seconds per real second
                 media_speed = cur_sec / elapsed
                 remaining_media = max(0.0, dur - cur_sec)
                 if media_speed > 0:
                     remaining_real = remaining_media / media_speed
                     eta_str = f" ETA: {format_duration(remaining_real)} | Speed: {media_speed:.2f}x "
-                    self.app.stdscr.addstr(y_offset + 1, 0, eta_str.center(width), curses.color_pair(3))
+                    self.app.stdscr.addstr(row, 0, eta_str.center(width), curses.color_pair(3))
+        row += 1
 
+        # Status line
         status_color = (
-            curses.color_pair(2)
-            if self.success
+            curses.color_pair(2) if self.success
             else (curses.color_pair(4) if self.done and not self.success else curses.color_pair(3))
         )
-        self.app.stdscr.addstr(y_offset + 2, 0, self.status.center(width), status_color)
+        self.app.stdscr.addstr(row, 0, self.status.center(width), status_color)
+        row += 2
 
-        # Progress Bar
-        bar_width = min(60, width - 15)
+        # Progress bar
+        bar_width = min(70, width - 10)
         filled = int(bar_width * self.percent / 100)
-        bar = "[" + "=" * filled + " " * (bar_width - filled) + "]"
-        self.app.stdscr.addstr(
-            y_offset + 4, 0, f" {bar} {self.percent}% ".center(width), curses.color_pair(3)
-        )
+        bar = "[" + "█" * filled + " " * (bar_width - filled) + "]"
+        self.app.stdscr.addstr(row, 0, f" {bar} {self.percent:3d}% ".center(width), curses.color_pair(3))
+        row += 2
 
-        # Elapsed Time
-        time_status = f" Total Time: {format_duration(elapsed)} "
+        # Elapsed time
+        time_status = f" Elapsed: {format_duration(elapsed)} "
         attr = curses.color_pair(2) | curses.A_BOLD if self.done else curses.A_DIM
-        self.app.stdscr.addstr(y_offset + 5, 0, time_status.center(width), attr)
+        self.app.stdscr.addstr(row, 0, time_status.center(width), attr)
+        row += 1
 
-        # Logs (auto-scroll to tail, with live frame= injected without locking)
-        log_y_start = y_offset + 7
-        if log_y_start < height - 2:
-            self.app.stdscr.addstr(
-                log_y_start - 1, 1, " FFmpeg Output: ", curses.A_BOLD | curses.A_UNDERLINE
-            )
-            y = log_y_start
+        # [C] hint (replaces full command dump)
+        self.app.stdscr.addstr(row, 0, " [C] Copy ffmpeg command to clipboard ".center(width), curses.A_DIM)
+        row += 2
+
+        # On failure: show last error lines from the ffmpeg log
+        if self.done and not self.success:
+            self.app.stdscr.addstr(row, 1, " FFmpeg errors: ", curses.color_pair(4) | curses.A_BOLD)
+            row += 1
             with self.logs_lock:
-                max_visible = height - log_y_start - 1
-                snapshot = list(self.logs[-max(0, max_visible - 1):])
-            # Append the live frame status without acquiring the lock again
-            if self.frame_status and max_visible > 0:
-                # Replace last entry if it's already a frame line to avoid duplicates
-                if snapshot and snapshot[-1].startswith("frame="):
-                    snapshot[-1] = self.frame_status
-                else:
-                    snapshot.append(self.frame_status)
-            for log in snapshot[-max_visible:]:
-                if y < height - 1:
-                    self.app.stdscr.addstr(y, 2, log[: width - 4], curses.A_DIM)
-                    y += 1
+                error_lines = [l for l in self.logs if any(
+                    kw in l.lower() for kw in ("error", "invalid", "failed", "no such", "unable")
+                )][-8:] or self.logs[-8:]
+            for log_line in error_lines:
+                if row < height - 2:
+                    self.app.stdscr.addstr(row, 2, log_line[:width - 4], curses.color_pair(4) | curses.A_DIM)
+                    row += 1
 
         # Footer
         if self.done:
-            footer = " [ANY KEY] Return to Editor | [C] Copy command "
+            footer = " [ENTER] Return | [?] Help | [C] Copy "
         else:
-            footer = " [Q/ESC] Cancel Conversion | [C] Copy command "
-        self.app.stdscr.addstr(
-            height - 1, 0, footer.center(width)[: width - 1], curses.color_pair(3)
-        )
-
-
+            footer = " [Q/ESC] Cancel | [?] Help | [C] Copy "
+        self.app.stdscr.addstr(height - 1, 0, footer.center(width)[:width - 1], curses.color_pair(3))
         self.app.stdscr.refresh()
 
     def handle_input(self, key):
@@ -549,6 +539,10 @@ class ProgressView:
             cmd_str = " ".join(self.ffmpeg_cmd)
             ok = copy_to_clipboard(cmd_str)
             self._copy_status = "Copied!" if ok else "Copy failed (no clipboard tool)"
+            return
+
+        if key in (KEY_HELP, KEY_H_LOWER, KEY_H_UPPER):
+            self.app.switch_view(HelpView(self.app, "ProgressView", back_view=self))
             return
 
         if self.done:

@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.0] - 2026-03-28
+
+### Added
+- **`[?]` Help Overlay**: Added a comprehensive, context-aware help system across all screens. Press `?` anywhere to see an explanation of the current view, detailed action guides, and "Why" context for advanced features like audio conditioning.
+- **`--cleanup` CLI flag**: Run `trackremux --cleanup [PATH]` to find and delete all leftover `.trackremux_trash/` and `.trackremux_staging/` directories under a given path. Now lists the specific files found in each directory before removal, providing visibility into exactly what is being deleted.
+
+### Changed
+- **Cleaner Progress View**: Removed the live ffmpeg log panel during conversion — it was noisy, unscrollable, and provided no actionable information. The screen now focuses on progress bar, ETA, speed, and status. On failure, the last relevant ffmpeg error lines are shown prominently.
+- **Inline Command Removed**: The full ffmpeg command is no longer shown in the UI during conversion. Use `[C]` to copy it to the clipboard at any time.
+- **Wider Progress Bar**: The bar now uses `█` fill and is wider (up to 70 chars) for better visual clarity.
+
+### Fixed
+- **Stale Status Message**: Progress view no longer shows a frozen `"Attempting..."` label during normal stream-copy operations. Status now correctly reads `"Encoding: <codec>..."` only during actual audio transcoding.
+- **Trash Auto-Cleanup**: Leftover `.trackremux_trash/` directories are now automatically removed after a successful overwrite. The safety net (holding the original) is created and deleted within the same atomic operation.
+
 ## [0.9.2] - 2026-03-24
 
 ### Fixed

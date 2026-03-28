@@ -35,6 +35,9 @@ KEY_O_LOWER = ord("o")
 KEY_O_UPPER = ord("O")
 KEY_P_LOWER = ord("p")
 KEY_P_UPPER = ord("P")
+KEY_HELP = ord("?")
+KEY_H_LOWER = ord("h")
+KEY_H_UPPER = ord("H")
 
 # UI Layout
 MARGIN = 3

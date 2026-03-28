@@ -1,6 +1,7 @@
 import curses
 
-from .constants import KEY_ENTER, KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER
+from .constants import KEY_ENTER, KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER, KEY_HELP, KEY_H_LOWER, KEY_H_UPPER
+from .help import HelpView
 
 # Direct import.
 from .editor import TrackEditor
@@ -53,7 +54,7 @@ class BatchSelectorView:
             self.app.stdscr.addstr(y, 2, line[: width - 4], attr)
 
         # Footer
-        footer = " [ENTER] Select | [Q/ESC] Back "
+        footer = " [ENTER] Select | [?] Help | [Q/ESC] Back "
         self.app.stdscr.addstr(
             height - 1, 0, footer.center(width)[: width - 1], curses.color_pair(3)
         )
@@ -64,6 +65,8 @@ class BatchSelectorView:
         batches = self.batches
         if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC):
             self.app.switch_view(self.back_view)
+        elif key in (KEY_HELP, KEY_H_LOWER, KEY_H_UPPER):
+            self.app.switch_view(HelpView(self.app, "BatchSelectorView", back_view=self))
         elif key == curses.KEY_UP:
             if self.selected_idx > 0:
                 self.selected_idx -= 1
