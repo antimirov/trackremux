@@ -27,7 +27,7 @@ Instead of wrestling with complex `ffmpeg` command-line arguments for every sing
 -   **Interactive TUI**: Built with `curses` for a fast, keyboard-centric workflow.
 -   **Batch Processing**: Automatically detects and processes TV shows/series/collections sequentially.
     -   **Smart Detection**: Recognizes series patterns (S01E01, 1x01, Ep01) and groups by season.
-    -   **Structural Fingerprinting**: Groups files with identical track structure.
+    -   **Strict Structural Fingerprinting**: Safely groups files based on an identical layout of tracks, strictly enforcing matching track counts, languages, codecs, and channel layouts (e.g., separating WebDL AAC 2.0 files from Blu-Ray DTS-HD 5.1 files).
     -   **Unified Editing**: Edit one file, and automatically apply the same track selections and **logical reordering** (e.g., move Japanese audio to bottom) across the entire batch regardless of internal stream ID numbering.
     -   **Seamless Workflow**: Returning from a batch conversion automatically refreshes the selector view with updated metadata, allowing for a continuous "process next batch" rhythm.
 -   **Rich Meta-data Explorer**:

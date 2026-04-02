@@ -61,11 +61,15 @@ class BatchDetector:
         # Language order is preserved for strict mapping.
         # Changing order would break batch logic for mismatched files.
 
-        a_langs = ",".join([t.display_language for t in a_tracks])
-        s_langs = ",".join([t.display_language for t in s_tracks])
+        a_parts = []
+        for t in a_tracks:
+            ch = t.channels if t.channels is not None else "?"
+            a_parts.append(f"{t.display_language}:{t.codec_name}:{ch}")
+        a_langs = ",".join(a_parts)
 
-        # Fingerprint consists of track count and language order.
+        s_langs = ",".join([f"{t.display_language}:{t.codec_name}" for t in s_tracks])
 
+        # Fingerprint consists of track count and detailed stream attributes.
         return f"V:{len(v_tracks)}|A:{len(a_tracks)}({a_langs})|S:{len(s_tracks)}({s_langs})"
 
     @classmethod

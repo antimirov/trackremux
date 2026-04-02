@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.2] - 2026-04-03
+
+### Changed
+- **Strict Batch Fingerprinting**: Improved batch grouping safety. The Structural Fingerprint now strictly factors in audio/subtitle codecs and channel counts, not just the track language and count. This prevents TrackRemux from mistakenly grouping differing releases (e.g., Blu-Ray and WebDL) of the same season together, which previously caused dangerous mismatches when applying templates.
+
 ## [0.10.1] - 2026-04-03
 
 ### Fixed
