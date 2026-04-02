@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.1] - 2026-04-03
+
+### Fixed
+- **CLI Parsing Bug**: Fixed a dangerous bug where passing `--cleanup` at the end of the command (`trackremux /path/ --cleanup`) caused `argparse` to misinterpret the flag, defaulting to `.` (the current working directory) and cleaning up the execution directory instead of the provided target `PATH`. Command line arguments are now evaluated safely.
+
 ## [0.10.0] - 2026-03-28
 
 ### Added

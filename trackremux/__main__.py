@@ -90,15 +90,13 @@ def main():
     parser.add_argument("-v", "--version", action="version", version=get_version_info())
     parser.add_argument(
         "--cleanup",
-        nargs="?",
-        const=".",
-        metavar="PATH",
-        help="Find and delete leftover .trackremux_trash and .trackremux_staging directories under PATH (default: current dir)",
+        action="store_true",
+        help="Find and delete leftover .trackremux_trash and .trackremux_staging directories under PATH",
     )
     args = parser.parse_args()
 
-    if args.cleanup is not None:
-        cleanup_path = os.path.abspath(args.cleanup)
+    if args.cleanup:
+        cleanup_path = os.path.abspath(args.path)
         if not os.path.isdir(cleanup_path):
             print(f"Error: '{cleanup_path}' is not a directory.")
             sys.exit(1)
