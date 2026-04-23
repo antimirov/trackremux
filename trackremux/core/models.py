@@ -27,6 +27,7 @@ class Track:
     width: Optional[int] = None  # For video
     height: Optional[int] = None  # For video
     bit_rate: Optional[int] = None  # In bits/s
+    bit_rate_is_estimated: bool = False  # True when bit_rate was guessed
     nb_frames: Optional[int] = None  # For video
     is_attached_pic: bool = False  # True for cover art/attached pictures
     is_default: bool = False  # True when disposition.default == 1

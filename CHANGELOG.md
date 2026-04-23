@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.3] - 2026-04-23
+
+### Fixed
+- **0.0MB Audio Size Bug**: Resolved an issue where audio tracks with missing bitrate information in their metadata were reported as "0.0MB". Added a conservative bitrate estimation fallback (e.g., 192kbps for HE-AAC 5.1) and updated the TUI to indicate estimated sizes with a `~` prefix (e.g., `~351.5MB`).
+- **Robust Metadata Probing**: Improved stream bitrate detection to perform case-insensitive searches for tags like `BPS` and `bitrate`, ensuring better compatibility with older remuxes.
+
 ## [0.10.2] - 2026-04-03
 
 ### Changed

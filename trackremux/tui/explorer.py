@@ -588,16 +588,25 @@ class FileExplorer:
 
             if media and getattr(media, "probed", False):
                 audio_tracks = [t for t in media.tracks if t.codec_type == "audio"]
-                audio_size_mb = sum(
-                    (t.bit_rate * media.duration) / 8 / 1024 / 1024
-                    for t in audio_tracks
-                    if t.bit_rate
-                )
+                audio_size_mb = 0
+                any_estimated = False
+                for t in audio_tracks:
+                    if t.bit_rate:
+                        audio_size_mb += (t.bit_rate * media.duration) / 8 / 1024 / 1024
+                        if getattr(t, "bit_rate_is_estimated", False):
+                            any_estimated = True
+                
                 langs = ",".join([t.display_language for t in audio_tracks if t.display_language]) or "und"
                 size_mb = media.size_bytes / 1024 / 1024
 
                 size_str = format_size(size_mb, precision=1)
-                a_size_str = format_size(audio_size_mb, precision=1).replace(" ", "")
+                
+                # Format audio size with ~ if any track size is estimated
+                a_size_val = format_size(audio_size_mb, precision=1).replace(" ", "")
+                if any_estimated:
+                    a_size_str = f"~{a_size_val}"
+                else:
+                    a_size_str = a_size_val
 
                 # Set HD Audio badge logic
                 highest_hd_audio = None

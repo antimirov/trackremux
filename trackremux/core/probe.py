@@ -84,17 +84,22 @@ class MediaProbe:
             )
 
 
-            # Try to find bit_rate in multiple places
-            br = s.get("bit_rate")
-            if not br:
-                # MKV often puts this in the BPS tag
-                br = tags.get("BPS") or tags.get("bit_rate") or tags.get("bitrate")
+            # Try to find bit_rate in multiple places (case-insensitive)
+            tags_lower = {k.lower(): v for k, v in tags.items()}
+            br = s.get("bit_rate") or tags_lower.get("bps") or tags_lower.get("bit_rate") or tags_lower.get("bitrate")
 
             if br:
                 try:
                     track.bit_rate = int(br)
                 except:
                     pass
+            
+            # Fallback: Estimate bitrate for audio if missing
+            if track.codec_type == "audio" and not track.bit_rate:
+                est = MediaProbe._estimate_bit_rate(track)
+                if est:
+                    track.bit_rate = est
+                    track.bit_rate_is_estimated = True
 
             # Fallback for nb_frames if missing in container
             if track.codec_type == "video" and not track.nb_frames:
@@ -110,3 +115,35 @@ class MediaProbe:
             media_file.tracks.append(track)
 
         return media_file
+
+    @staticmethod
+    def _estimate_bit_rate(track: Track) -> Optional[int]:
+        """Provide a conservative bitrate estimate for common codecs when missing."""
+        if track.codec_type != "audio":
+            return None
+        
+        name = track.codec_name.lower()
+        ch = track.channels or 2
+        
+        if name == "aac":
+            # HE-AAC vs LC detection via profile
+            if track.profile and "HE-AAC" in track.profile:
+                return 48000 * ch if ch <= 2 else 192000 # HE-AAC 5.1 ~192k
+            return 64000 * ch # LC-AAC 2ch ~128k, 5.1 ~384k
+        elif name == "ac3":
+            return 192000 if ch <= 2 else 448000
+        elif name == "eac3":
+            return 256000 if ch <= 2 else 640000
+        elif name == "dts":
+            return 768000 if ch <= 2 else 1536000
+        elif name == "mp3":
+            return int(128000 * (ch / 2))
+        elif "pcm" in name:
+            # PCM can be calculated if we have sample rate
+            # FFmpeg JSON for audio streams often has "sample_rate" at top level
+            # but Track model doesn't store it yet, so we check tags as backup.
+            return 768000 * ch # Conservative estimate (1ch 48k 16bit)
+        elif name == "flac":
+            return 350000 * ch # Rough estimate for compressed lossless
+        
+        return None

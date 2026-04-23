@@ -512,7 +512,8 @@ class TrackEditor:
             track_size_str = ""
             if track.bit_rate:
                 size_mb = (track.bit_rate * self.media_file.duration) / 8 / 1024 / 1024
-                track_size_str = f"[{format_size(size_mb, precision=1)}]"
+                prefix_est = "~" if getattr(track, "bit_rate_is_estimated", False) else ""
+                track_size_str = f"[{prefix_est}{format_size(size_mb, precision=1)}]"
 
             source_tag = ""
             if track.source_path:
