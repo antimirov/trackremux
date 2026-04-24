@@ -81,6 +81,16 @@ class MediaProbe:
                 ),
                 is_attached_pic=disposition.get("attached_pic", 0) == 1,
                 is_default=disposition.get("default", 0) == 1,
+                is_forced=disposition.get("forced", 0) == 1,
+                is_commentary_disposition=disposition.get("comment", 0) == 1,
+                is_description_disposition=(
+                    disposition.get("descriptions", 0) == 1
+                    or disposition.get("visual_impaired", 0) == 1
+                ),
+                is_sdh_disposition=(
+                    disposition.get("hearing_impaired", 0) == 1
+                    or disposition.get("captions", 0) == 1
+                ),
             )
 
 
@@ -90,7 +100,9 @@ class MediaProbe:
 
             if br:
                 try:
-                    track.bit_rate = int(br)
+                    val = int(br)
+                    if val > 1000:  # Threshold for "real" bitrates
+                        track.bit_rate = val
                 except:
                     pass
             
@@ -135,9 +147,19 @@ class MediaProbe:
         elif name == "eac3":
             return 256000 if ch <= 2 else 640000
         elif name == "dts":
+            if track.profile and "DTS-HD MA" in track.profile:
+                return 3500000 if ch <= 6 else 5500000
             return 768000 if ch <= 2 else 1536000
         elif name == "mp3":
             return int(128000 * (ch / 2))
+        elif name == "opus":
+            return 64000 * ch if ch <= 2 else 256000 # Opus is very efficient
+        elif name == "vorbis":
+            return 64000 * ch if ch <= 2 else 384000
+        elif name == "truehd":
+            return 3000000 if ch <= 6 else 5000000 # High VBR
+        elif name == "alac":
+            return 400000 * ch
         elif "pcm" in name:
             # PCM can be calculated if we have sample rate
             # FFmpeg JSON for audio streams often has "sample_rate" at top level

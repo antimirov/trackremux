@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.0] - 2026-04-24
+
+### Added
+- **Auto-Exclude Commentary & Extras**: Added a major new feature to automatically filter out non-main tracks. You can now configure your profile to discard:
+  - **Commentaries**: Tracks with "Commentary", "Director's", "VFX" in the title or marked with `comment` disposition.
+  - **Audio Descriptions**: Tracks for the visually impaired.
+  - **SDH Subtitles**: "Subtitles for the Deaf and Hard of Hearing" (e.g. titles with `(SDH)`).
+- **Profile UI Update**: Expanded the `[P] Profile` overlay with three new toggles for these exclusions, providing instant library-wide cleanup.
+
+### Fixed
+- **Improved Size Estimation**: Expanded bitrate estimation to support **Opus**, **Vorbis**, **TrueHD**, **ALAC**, and **DTS-HD MA** tracks. Also added a threshold to ignore "dummy" reported bitrates (< 1kbps) that were previously causing files to show as 0.0MB.
+
 ## [0.10.3] - 2026-04-23
 
 ### Fixed

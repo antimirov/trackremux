@@ -31,9 +31,42 @@ class Track:
     nb_frames: Optional[int] = None  # For video
     is_attached_pic: bool = False  # True for cover art/attached pictures
     is_default: bool = False  # True when disposition.default == 1
+    is_forced: bool = False  # True when disposition.forced == 1
+    is_commentary_disposition: bool = False  # True when disposition.comment == 1
+    is_description_disposition: bool = False  # True when disposition.descriptions == 1
+    is_sdh_disposition: bool = False  # True when disposition.hearing_impaired == 1
     source_path: Optional[str] = None  # Path to external file (or None for main file)
     offset_seconds: float = 0.0  # Sync offset for donor tracks (applied via -itsoffset)
     trackremux_id: Optional[int] = None  # Unique ID for the output file metadata
+
+    @property
+    def is_commentary(self) -> bool:
+        """True if the track is a commentary (based on title or disposition)."""
+        if self.is_commentary_disposition:
+            return True
+        title = self.tags.get("title", "").lower()
+        # Common commentary keywords
+        keywords = ["commentary", "director's", "vfx", "special effects", "behind the scenes"]
+        return any(k in title for k in keywords)
+
+    @property
+    def is_description(self) -> bool:
+        """True if the track is an audio description for the visually impaired."""
+        if self.is_description_disposition:
+            return True
+        title = self.tags.get("title", "").lower()
+        keywords = ["description", "descriptive", "visual description", "audio description"]
+        return any(k in title for k in keywords)
+
+    @property
+    def is_sdh(self) -> bool:
+        """True if the track is a subtitle for the deaf and hard of hearing (SDH)."""
+        if self.is_sdh_disposition:
+            return True
+        title = self.tags.get("title", "").lower()
+        # Look for SDH markers in the title
+        keywords = ["(sdh)", " sdh", "hearing impaired"]
+        return any(k in title for k in keywords)
 
     @property
     def is_dts_hd_ma(self) -> bool:

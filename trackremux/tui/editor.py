@@ -72,7 +72,10 @@ class TrackEditor:
         self._profile_keep = ", ".join(self.app.config.keep_langs)
         self._profile_discard = ", ".join(self.app.config.discard_langs)
         self._profile_prefer_ac3 = self.app.config.prefer_ac3_over_hd
-        self._profile_field = 0  # 0=keep, 1=discard, 2=ac3 toggle
+        self._profile_discard_commentaries = self.app.config.discard_commentaries
+        self._profile_discard_descriptions = self.app.config.discard_descriptions
+        self._profile_discard_sdh = self.app.config.discard_sdh
+        self._profile_field = 0  # 0=keep, 1=discard, 2=ac3, 3=comm, 4=desc, 5=sdh
         self._profile_cursor = len(self._profile_keep)
         self._profile_editing = False  # True when actively editing a text field
         self._profile_edit_backup = ""  # Backup for ESC discard
@@ -1199,7 +1202,7 @@ class TrackEditor:
     def _draw_profile_overlay(self, height, width):
         """Draw the profile save overlay."""
         mw = 58
-        mh = 13
+        mh = 16
         my = (height - mh) // 2
         mx = (width - mw) // 2
         for r in range(mh):
@@ -1217,10 +1220,16 @@ class TrackEditor:
         val_w = mw - label_w - 4
 
         ac3_val = "[yes]" if self._profile_prefer_ac3 else "[no] "
+        comm_val = "[yes]" if self._profile_discard_commentaries else "[no] "
+        desc_val = "[yes]" if self._profile_discard_descriptions else "[no] "
+        sdh_val = "[yes]" if self._profile_discard_sdh else "[no] "
         fields = [
             ("Keep languages:", self._profile_keep),
             ("Discard languages:", self._profile_discard),
             ("Prefer AC3 over HD Aud:", ac3_val),
+            ("Discard Commentaries:", comm_val),
+            ("Discard Descriptions:", desc_val),
+            ("Discard SDH Subs:", sdh_val),
         ]
         for i, (label, val) in enumerate(fields):
             is_active = self._profile_field == i
@@ -1258,7 +1267,7 @@ class TrackEditor:
             ctx = "  [ENTER] Edit (comma-separated, e.g. eng, fra)"
         else:
             ctx = "  [ENTER/SPACE] Toggle"
-        self.app.stdscr.addstr(my + 7, mx, ctx[:mw], curses.A_DIM)
+        self.app.stdscr.addstr(my + mh - 4, mx, ctx[:mw], curses.A_DIM)
 
         hint = "  [TAB/↑↓] Navigate | [ESC] Close"
         self.app.stdscr.addstr(my + mh - 2, mx, hint[:mw], curses.color_pair(3))
@@ -1281,6 +1290,9 @@ class TrackEditor:
             s.strip() for s in self._profile_discard.split(",") if s.strip()
         ]
         self.app.config.prefer_ac3_over_hd = self._profile_prefer_ac3
+        self.app.config.discard_commentaries = self._profile_discard_commentaries
+        self.app.config.discard_descriptions = self._profile_discard_descriptions
+        self.app.config.discard_sdh = self._profile_discard_sdh
         self.app.config.save()
         from ..core.config import CONFIG_PATH
 
@@ -1330,13 +1342,25 @@ class TrackEditor:
         if key in (KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER):
             self.showing_profile_overlay = False
         elif key in (curses.KEY_UP, curses.KEY_BTAB):
-            self._profile_field = (self._profile_field - 1) % 3
+            self._profile_field = (self._profile_field - 1) % 6
         elif key in (curses.KEY_DOWN, ord("\t")):
-            self._profile_field = (self._profile_field + 1) % 3
+            self._profile_field = (self._profile_field + 1) % 6
         elif key == KEY_ENTER:
             if self._profile_field == 2:
-                # Boolean: toggle and auto-save
+                # AC3 toggle
                 self._profile_prefer_ac3 = not self._profile_prefer_ac3
+                self._profile_save()
+            elif self._profile_field == 3:
+                # Commentary toggle
+                self._profile_discard_commentaries = not self._profile_discard_commentaries
+                self._profile_save()
+            elif self._profile_field == 4:
+                # Description toggle
+                self._profile_discard_descriptions = not self._profile_discard_descriptions
+                self._profile_save()
+            elif self._profile_field == 5:
+                # SDH toggle
+                self._profile_discard_sdh = not self._profile_discard_sdh
                 self._profile_save()
             else:
                 # Text field: enter editing mode
@@ -1344,8 +1368,15 @@ class TrackEditor:
                 self._profile_edit_backup = self._profile_get_text()
                 self._profile_cursor = len(self._profile_get_text())
                 self._profile_save_msg = ""
-        elif self._profile_field == 2 and key in (KEY_SPACE,):
-            self._profile_prefer_ac3 = not self._profile_prefer_ac3
+        elif self._profile_field >= 2 and key in (KEY_SPACE,):
+            if self._profile_field == 2:
+                self._profile_prefer_ac3 = not self._profile_prefer_ac3
+            elif self._profile_field == 3:
+                self._profile_discard_commentaries = not self._profile_discard_commentaries
+            elif self._profile_field == 4:
+                self._profile_discard_descriptions = not self._profile_discard_descriptions
+            elif self._profile_field == 5:
+                self._profile_discard_sdh = not self._profile_discard_sdh
             self._profile_save()
 
     def _edit_language(self):
