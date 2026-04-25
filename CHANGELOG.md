@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0] - 2026-04-24
+
+### Added
+- **Asynchronous Batch Queueing**: Remuxing operations are now fully offloaded to a persistent background worker. Pressing `[S]ave` instantly queues the file without blocking the UI, allowing you to quickly queue up dozens of files and walk away.
+- **Background Queue View**: Added a new dedicated `[V] Queue` view that lets you monitor the background worker, see realtime progress of ongoing jobs, and view detailed stats for queued and completed tasks directly from the TUI.
+
 ## [0.11.0] - 2026-04-24
 
 ### Added

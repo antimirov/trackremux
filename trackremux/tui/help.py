@@ -25,6 +25,7 @@ or incompatible audio formats.
 - ENTER:        Open the selected file or directory.
 - D:            Toggle filter (Show All vs. HD Audio only).
 - B:            Open Batch Selector (if groups are detected).
+- V:            Open Background Queue View.
 - R:            Rescan current directory (clear cache).
 - N / S / T / A: Sort by Name, Size, Tracks, or Audio Size.
 - M:            Toggle Mouse support (App mode vs. Terminal mode).

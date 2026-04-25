@@ -37,6 +37,8 @@ from .constants import (
     KEY_S_UPPER,
     KEY_T_LOWER,
     KEY_T_UPPER,
+    KEY_V_LOWER,
+    KEY_V_UPPER,
     MARGIN,
 )
 from .editor import TrackEditor
@@ -762,7 +764,7 @@ class FileExplorer:
         quit_label = "Back" if self.back_view else "Quit"
         mouse_footer = f"[M] Mouse: {mouse_status}"
         batch_opt = "[B]atch | " if self.batches else ""
-        action_footer = f"[?] Help | [ENTER] Open | {batch_opt}[R]escan | [Q/ESC] {quit_label} "
+        action_footer = f"[?] Help | [ENTER] Open | {batch_opt}[V] Queue | [R]escan | [Q/ESC] {quit_label} "
 
         # Draw left-aligned sort section
         left_text = sort_footer[: width - 1]
@@ -849,6 +851,9 @@ class FileExplorer:
             self.scroll_idx = 0
         elif key in (KEY_HELP, KEY_H_LOWER, KEY_H_UPPER):
             self.app.switch_view(HelpView(self.app, "FileExplorer", back_view=self))
+        elif key in (KEY_V_LOWER, KEY_V_UPPER):
+            from .queue_view import QueueView
+            self.app.switch_view(QueueView(self.app, back_view=self))
         elif key == curses.KEY_UP:
             if self.selected_idx > 0:
                 self.selected_idx -= 1
@@ -906,7 +911,7 @@ class FileExplorer:
                     mouse_footer = f"[M] Mouse: {mouse_status}"
                     batch_opt = "[B]atch | " if self.batches else ""
                     help_opt = "[?] Help | "
-                    action_footer = f"{help_opt}[ENTER] Open | {batch_opt}[R]escan | [Q/ESC] {quit_label} "
+                    action_footer = f"{help_opt}[ENTER] Open | {batch_opt}[V] Queue | [R]escan | [Q/ESC] {quit_label} "
                     right_text = f" {mouse_footer} | {action_footer}"
 
                     # Use dynamic position detection for all buttons
@@ -941,6 +946,7 @@ class FileExplorer:
                         ("[M]", KEY_M_LOWER),
                         ("[B]atch", KEY_B_LOWER),
                         ("[ENTER]", KEY_ENTER),
+                        ("[V] Queue", KEY_V_LOWER),
                         ("[R]escan", KEY_R_LOWER),
                         ("[Q/ESC]", KEY_Q_LOWER),
                     ]

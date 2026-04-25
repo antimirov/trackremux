@@ -4,7 +4,7 @@
 
 *This whole project was vibe coded on a Friday evening out of necessity while organizing the media library on my NAS.*
 
-![Media Browser](docs/screenshots/02_media_browser.png)
+![Media Browser](docs/screenshots/media_browser.png)
 
 > [!TIP]
 > Check out the [CHANGELOG](CHANGELOG.md) to see what's new in the latest version!
@@ -64,27 +64,31 @@ Instead of wrestling with complex `ffmpeg` command-line arguments for every sing
 
 ### 1. Launch & Directory Scan
 Scan any folder to instantly see track counts and sizes.
-![Launch](docs/screenshots/01_launch_trackremux.png)
+![Launch](docs/screenshots/01_launch.png)
 
 ### 2. Intelligent Track Selection
 Pick exactly what you need. Audio previews help distinguish between different dubs or commentaries.
-![Selecting Tracks](docs/screenshots/03_selecting_tracks.png)
+![Selecting Tracks](docs/screenshots/02_selection.png)
 
 ### 3. External Tracks & Language Editing
 TrackRemux finds external subtitle/audio files automatically. You can also manually correct missing language tags.
-![External Tracks](docs/screenshots/07_external_tracks.png)
+![External Tracks](docs/screenshots/03_external_tracks.png)
 
 ### 4. Fast, Lossless Conversion
 Watch the progress in real-time as ffmpeg remuxes your file at disk-IO speeds.
-![Converting](docs/screenshots/04_converting.png)
+![Converting](docs/screenshots/04_conversion.png)
 
-### 5. Successful Completion
+### 5. Background Task Queue
+Press `[S]ave` to instantly queue files. The background worker remuxes them sequentially while you continue browsing and queuing more content. Press `[V]` to monitor the queue and view detailed stats for each task.
+![Background Queue](docs/screenshots/05_queue.png)
+
+### 6. Successful Completion
 Final sizes and success messages are displayed directly in the TUI upon completion.
-![Result](docs/screenshots/05_result.png)
+![Result](docs/screenshots/06_completion.png)
 
-### 6. Efficient Storage
+### 7. Efficient Storage
 Remuxing is lossless and fast. You can see the significant size savings in your directory listing without any quality loss.
-![Result Difference](docs/screenshots/06_list_files.png)
+![Result Difference](docs/screenshots/07_storage.png)
 
 ## 🛠️ Prerequisites
 
@@ -155,6 +159,7 @@ trackremux "My Movie.mkv"
 | **B** | Open Batch Selector (when batches detected) |
 | **D** | Toggle Filter: All / HD Audio only |
 | **M** | Toggle Mouse Support |
+| **V** | Open Background Task Queue |
 | **R** | Force re-scan current directory |
 | **N / S / T / A** | Sort by **N**ame, **S**ize, **T**racks, **A**udio Size |
 | **Q / Esc** | Quit Application |
@@ -173,7 +178,7 @@ trackremux "My Movie.mkv"
 | **P** | Open Profile editor (keep/discard languages, AC3 preference) |
 | **A** | Apply saved profile to current file |
 | **M** | Toggle Mouse Support |
-| **S** | Save — opens output mode dialog (`[O]`verwrite / `[L]`ocal / `[R]`emote) |
+| **S** | Save — Select output mode ([O]verwrite / [L]ocal / [R]emote) and enqueue |
 | **Esc / Q** | Back to Explorer |
 
 ## 🗺️ Roadmap

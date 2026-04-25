@@ -521,7 +521,8 @@ class TrackEditor:
             source_tag = ""
             if track.source_path:
                 short_name = self._get_short_source_name(track.source_path)
-                source_tag = f" [EXT: {short_name} #{track.index}]"
+                # Ensure there is a separator before the external source tag
+                source_tag = f" | [EXT: {short_name} #{track.index}]"
 
             # Truncate source tag if too long?
             # Max width logic?
@@ -833,12 +834,12 @@ class TrackEditor:
                     if width < 110:
                         footer = (
                             f" [SPC] Tgl | [ENT] Play | [L] Lang | [S+↑/↓] Move"
-                            f" | [C] {audio_tag} | [S] Save | [P] Prof | [M] {mouse_status} | [Q] Back "
+                            f" | [C] {audio_tag} | [S] Start | [E] Enqueue | [P] Prof | [M] {mouse_status} | [Q] Back "
                         )
                     else:
                         footer = (
                             f" [SPACE] Toggle | [ENTER] Play | [L] Lang | [Shift+↑/↓] Reorder"
-                            f" | [C] Audio:{audio_tag} | [S] Save | [P] Profile | [M] Mouse:{mouse_status} | [Q/ESC] Back "
+                            f" | [C] Audio:{audio_tag} | [S] Start | [E] Enqueue | [P] Profile | [M] Mouse:{mouse_status} | [Q/ESC] Back "
                         )
 
                     # Center the footer
@@ -988,41 +989,77 @@ class TrackEditor:
                 self._open_donor_overlay()
 
     def _on_save_pressed(self):
-        """Called when [S] is pressed.  Shows output mode dialog once per session."""
+        """Called when [S] is pressed. Shows output mode dialog once per session."""
         if not self.app.settings.output_mode_chosen:
             self.showing_output_dialog = True
         else:
             self._start_conversion()
 
     def _start_conversion(self):
-        """Commits changes and switches to ProgressView."""
+        """Commits changes, queues the task, and auto-starts the background worker."""
         self.commit_changes()
+
+        from ..core.queue import QueueManager
+        import copy
+        qm = self.app.queue_manager
+        
         if self.batch_group:
-            from .batch_progress import BatchProgressView
+            template_media = self.media_file
+            added_count = 0
+            for f in self.batch_group.files:
+                f_clone = copy.deepcopy(f)
+                
+                template_by_type = {
+                    "video": [t for t in template_media.tracks if t.codec_type == "video"],
+                    "audio": [t for t in template_media.tracks if t.codec_type == "audio"],
+                    "subtitle": [t for t in template_media.tracks if t.codec_type == "subtitle"],
+                }
+                target_by_type = {
+                    "video": [t for t in f_clone.tracks if t.codec_type == "video"],
+                    "audio": [t for t in f_clone.tracks if t.codec_type == "audio"],
+                    "subtitle": [t for t in f_clone.tracks if t.codec_type == "subtitle"],
+                }
 
-            self.app.switch_view(
-                BatchProgressView(
-                    self.app,
-                    self.batch_group,
-                    self.media_file,
-                    self,
-                    output_mode=self.app.settings.output_mode,
-                    convert_audio=self.app.settings.convert_audio,
-                )
-            )
-            return
+                tmpl_logical_pos = {}
+                for ctype, tracks in template_by_type.items():
+                    for i, t in enumerate(tracks):
+                        tmpl_logical_pos[id(t)] = (ctype, i)
 
-        from .progress import ProgressView
+                new_tracks = []
+                for tmpl in template_media.tracks:
+                    ctype, pos = tmpl_logical_pos[id(tmpl)]
+                    target_typed_list = target_by_type.get(ctype, [])
+                    if pos < len(target_typed_list):
+                        t_track = target_typed_list[pos]
+                        t_track.enabled = tmpl.enabled
+                        t_track.language = tmpl.language
+                        t_track.tags = dict(tmpl.tags)
+                        new_tracks.append(t_track)
 
-        self.app.switch_view(
-            ProgressView(
-                self.app,
-                self.media_file,
-                self,
-                output_mode=self.app.settings.output_mode,
-                convert_audio=self.app.settings.convert_audio,
-            )
-        )
+                if len(new_tracks) == len(f_clone.tracks):
+                    f_clone.tracks = new_tracks
+                else:
+                    for i, t_track in enumerate(f_clone.tracks):
+                        if i < len(template_media.tracks):
+                            tmpl = template_media.tracks[i]
+                            t_track.enabled = tmpl.enabled
+                            t_track.language = tmpl.language
+                            t_track.tags = dict(tmpl.tags)
+
+                qm.add_task(f_clone, self.app.settings.output_mode, self.app.settings.convert_audio)
+                added_count += 1
+            
+            self.status_message = f" Queued {added_count} items! Processing in background. "
+        else:
+            qm.add_task(self.media_file, self.app.settings.output_mode, self.app.settings.convert_audio)
+            self.status_message = " Added to Queue! Processing in background. "
+            
+        # Auto-start worker if it's not running
+        if hasattr(self.app, "queue_worker") and not self.app.queue_worker.is_running():
+            self.app.queue_worker.start()
+            
+        # Clear state and drop back to explorer
+        self.app.switch_view(self.back_view)
 
     def _draw_output_dialog(self, height, width):
         """Draw the output-mode selection overlay with contextual output preview."""

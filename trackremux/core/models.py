@@ -110,8 +110,10 @@ class Track:
                 ch_str = self.channel_layout
                 if self.channels and str(self.channels) not in self.channel_layout:
                     ch_str += f" ({self.channels}ch)"
+            elif self.channels:
+                ch_str = f"{self.channels}ch"
             else:
-                ch_str = f"{self.channels or '?'}ch"
+                ch_str = "unknown"
             
             title_str = ""
             if self.tags.get("title"):
