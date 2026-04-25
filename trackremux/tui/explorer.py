@@ -39,6 +39,7 @@ from .constants import (
     KEY_T_UPPER,
     KEY_V_LOWER,
     KEY_V_UPPER,
+    KEY_CTRL_C,
     MARGIN,
 )
 from .editor import TrackEditor

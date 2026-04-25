@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.2] - 2026-04-25
+
+### Fixed
+- **Startup Crash Hotfix**: Fixed a critical `NameError` introduced in 0.12.1 where missing imports for `KEY_CTRL_C` caused the application to crash instantly upon launch before the UI could even render.
+
 ## [0.12.1] - 2026-04-25
 
 ### Fixed

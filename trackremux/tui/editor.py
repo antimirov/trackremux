@@ -38,6 +38,7 @@ from .constants import (
     SEEK_STEP_SECONDS,
     TRACK_EDITOR_INFO_HEIGHT,
     TRACK_LIST_Y_OFFSET,
+    KEY_CTRL_C,
 )
 from .formatters import format_duration, format_size
 from .help import HelpView
