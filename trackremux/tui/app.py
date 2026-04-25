@@ -88,6 +88,11 @@ class TrackRemuxApp:
                 self.current_view = FileExplorer(self, self.start_path)
 
             self.stdscr.timeout(APP_TIMEOUT_MS)  # Non-blocking getch
+            
+            # Start worker immediately to pick up any pending or abandoned tasks
+            if hasattr(self, "queue_worker") and not self.queue_worker.is_running():
+                self.queue_worker.start()
+
             while self.current_view:
                 if self.pending_refreshes:
                     if hasattr(self.current_view, "refresh_metadata"):
@@ -97,10 +102,6 @@ class TrackRemuxApp:
                         
                 self.current_view.draw()
                 key = self.stdscr.getch()
-
-                # Handle Ctrl-C (3) explicitly
-                if key == KEY_CTRL_C:
-                    raise KeyboardInterrupt
 
                 self.current_view.handle_input(key)
         except KeyboardInterrupt:

@@ -58,6 +58,7 @@ class FileExplorer:
         self.app = app
         self.path = os.path.abspath(path)
         self.back_view = back_view
+        self.confirming_quit = False
         self.back_view = back_view
 
         # Initialize empty lists for async loading
@@ -750,6 +751,27 @@ class FileExplorer:
 
         self._draw_footer(height, width)
 
+        if self.confirming_quit:
+            my_pid = os.getpid()
+            active_tasks = [t for t in self.app.queue_manager.get_tasks() if t.status in ("pending", "running") and t.owner_pid == my_pid]
+            count = len(active_tasks)
+            
+            msg1 = f" You have {count} active task(s) in the background queue. "
+            msg2 = " Quitting will pause them. Resume next time? "
+            msg3 = " [Y] Quit / [N] Cancel "
+            
+            w = max(len(msg1), len(msg2), len(msg3)) + 4
+            h = 5
+            sy = height // 2 - h // 2
+            sx = width // 2 - w // 2
+            
+            for i in range(h):
+                self.app.stdscr.addstr(sy + i, sx, " " * w, curses.color_pair(3))
+                
+            self.app.stdscr.addstr(sy + 1, sx + (w - len(msg1)) // 2, msg1, curses.color_pair(3) | curses.A_BOLD)
+            self.app.stdscr.addstr(sy + 2, sx + (w - len(msg2)) // 2, msg2, curses.color_pair(3))
+            self.app.stdscr.addstr(sy + 3, sx + (w - len(msg3)) // 2, msg3, curses.color_pair(3) | curses.A_BOLD)
+
         self.app.stdscr.refresh()
 
         # Trigger prioritization for current view
@@ -791,10 +813,25 @@ class FileExplorer:
         sorted_files = self._get_sorted_files()
         list_height = height - 5
 
-        if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC):
+        if self.confirming_quit:
+            if key in (ord('y'), ord('Y'), KEY_ENTER):
+                if self.app.mouse_enabled:
+                    self.app.toggle_mouse()
+                self.app.switch_view(None)
+            elif key in (ord('n'), ord('N'), KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC, KEY_CTRL_C):
+                self.confirming_quit = False
+            return
+
+        if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC, KEY_CTRL_C):
             if self.back_view:
                 self.app.switch_view(self.back_view)
             else:
+                my_pid = os.getpid()
+                active_tasks = [t for t in self.app.queue_manager.get_tasks() if t.status in ("pending", "running") and t.owner_pid == my_pid]
+                if active_tasks and not self.confirming_quit:
+                    self.confirming_quit = True
+                    return
+                
                 if self.app.mouse_enabled:
                     self.app.toggle_mouse()
                 self.app.switch_view(None)

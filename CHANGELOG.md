@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.1] - 2026-04-25
+
+### Fixed
+- **Multi-Instance Safety**: Added PID-based ownership to queued tasks. If you run multiple instances of TrackRemux (e.g., in different directories), they will no longer steal each other's background tasks. A central queue is maintained, and "abandoned" tasks from closed instances are automatically adopted by active ones. Queue view (`[V]`) now clearly labels tasks owned by other instances.
+- **Atomic Queue Saves**: Upgraded queue file saving to use atomic file swaps, preventing file corruption when multiple instances try to save the queue simultaneously.
+- **Duplicate Queue Prevention**: Added strict guards to the Track Editor. If a file is already `pending` or `running` in the background queue, trying to queue it again will be blocked with an error message, preventing duplicated processing and wasted resources.
+- **Audio Previews**: Fixed a bug where track audio previews would continue playing in the background when navigating to overlays (like Save, Profile, or Language dialogs).
+- **Quit Confirmation**: Added a safety dialog when attempting to quit the application (`Q` or `ESC`) while there are active tasks in the background queue. This prevents accidental interruption of your remuxing batch.
+- **Zombie Task Recovery**: Fixed a bug where background worker threads were not auto-starting upon application launch, causing "zombie" tasks from crashed or forcefully closed terminal sessions to be permanently ignored. The worker now auto-starts, detects dead processes, and automatically adopts and resumes their stuck tasks.
+- **Ctrl-C Safety**: Added `Ctrl-C` to the standard exit handlers. Pressing `Ctrl-C` will now correctly trigger the active tasks confirmation dialog instead of instantly and silently killing the app without warning.
+
 ## [0.12.0] - 2026-04-24
 
 ### Added

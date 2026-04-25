@@ -68,6 +68,11 @@ class QueueView:
                         fname = os.path.basename(task.media_file_dict.get('path', 'Unknown'))
                         status = task.status.upper()
                         
+                        owner_str = ""
+                        my_pid = os.getpid()
+                        if task.owner_pid and task.owner_pid != my_pid:
+                            owner_str = f" [PID:{task.owner_pid}]"
+                        
                         # Generate stats
                         try:
                             media_file = task.get_media_file()
@@ -109,7 +114,7 @@ class QueueView:
                         if max_fname_len > 5 and len(fname) > max_fname_len:
                             fname = fname[:max_fname_len-3] + "..."
                             
-                        line = f"{prefix}[{status[:4]}] {fname}"
+                        line = f"{prefix}[{status[:4]}] {fname}{owner_str}"
                         padding = " " * max(1, width - len(line) - stats_len - 1)
                         line = f"{line}{padding}{stats} "
                         

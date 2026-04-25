@@ -79,7 +79,7 @@ Watch the progress in real-time as ffmpeg remuxes your file at disk-IO speeds.
 ![Converting](docs/screenshots/04_conversion.png)
 
 ### 5. Background Task Queue
-Press `[S]ave` to instantly queue files. The background worker remuxes them sequentially while you continue browsing and queuing more content. Press `[V]` to monitor the queue and view detailed stats for each task.
+Press `[S]ave` to instantly queue files. The background worker remuxes them sequentially while you continue browsing and queuing more content. Press `[V]` to monitor the queue and view detailed stats for each task. The queue is fully **multi-instance safe** and supports auto-recovery—if your SSH session drops or your Mac restarts, simply open TrackRemux again and it will instantly adopt and resume any abandoned tasks.
 ![Background Queue](docs/screenshots/05_queue.png)
 
 ### 6. Successful Completion

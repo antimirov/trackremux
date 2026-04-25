@@ -19,6 +19,7 @@ class QueuedTask:
     convert_audio: bool
     status: str = "pending"  # pending, running, completed, failed
     added_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    owner_pid: Optional[int] = None
     error_message: Optional[str] = None
 
     @classmethod
@@ -79,16 +80,19 @@ class QueueManager:
             self._tasks = []
 
     def save(self):
-        """Save the current queue to disk."""
+        """Save the current queue to disk atomically."""
         try:
-            with open(self.queue_file_path, 'w', encoding='utf-8') as f:
+            temp_path = self.queue_file_path + ".tmp"
+            with open(temp_path, 'w', encoding='utf-8') as f:
                 json.dump([t.to_dict() for t in self._tasks], f, indent=2)
+            os.replace(temp_path, self.queue_file_path)
         except Exception as e:
             logger.error(f"Failed to save queue file: {e}")
 
     def add_task(self, media_file: MediaFile, output_mode: OutputMode, convert_audio: bool) -> QueuedTask:
         """Add a new task to the queue."""
         task = QueuedTask.create(media_file, output_mode, convert_audio)
+        task.owner_pid = os.getpid()
         self._tasks.append(task)
         self.save()
         return task
@@ -99,12 +103,46 @@ class QueueManager:
             return [t for t in self._tasks if t.status == status]
         return list(self._tasks)
 
-    def get_next_pending(self) -> Optional[QueuedTask]:
-        """Get the next pending task, if any."""
+    def has_pending_task(self, path: str) -> bool:
+        """Check if a file is already in the queue (pending or running)."""
         for t in self._tasks:
-            if t.status == "pending":
-                return t
+            if t.media_file_dict.get('path') == path and t.status in ("pending", "running"):
+                return True
+        return False
+
+    def get_next_pending(self) -> Optional[QueuedTask]:
+        """Get the next pending task, if any, that belongs to this instance or is abandoned."""
+        my_pid = os.getpid()
+        for t in self._tasks:
+            if t.status in ("pending", "running"):
+                # If it's a running task but the owner process is dead, 
+                # we must have crashed or been force-quit. Revert to pending and adopt.
+                if t.status == "running" and t.owner_pid is not None and not self._is_pid_running(t.owner_pid):
+                    t.status = "pending"
+                    t.owner_pid = my_pid
+                    self.save()
+                    return t
+                    
+                if t.status == "pending":
+                    # Take task if:
+                    # 1. We own it
+                    # 2. It has no owner (legacy)
+                    # 3. The owner is dead
+                    if t.owner_pid is None or t.owner_pid == my_pid or not self._is_pid_running(t.owner_pid):
+                        # If it's abandoned, we take ownership
+                        if t.owner_pid != my_pid:
+                            t.owner_pid = my_pid
+                            self.save()
+                        return t
         return None
+
+    def _is_pid_running(self, pid: int) -> bool:
+        """Check if a process is still running."""
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
 
     def update_task_status(self, task_id: str, status: str, error_message: Optional[str] = None):
         """Update a task's status and optionally its error message."""

@@ -788,7 +788,7 @@ class TrackEditor:
                     pass
             return
 
-        if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC):
+        if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC, KEY_CTRL_C):
             if self._has_changes():
                 self.confirming_exit = True
             else:
@@ -934,22 +934,25 @@ class TrackEditor:
                 self.current_preview_time += SEEK_STEP_SECONDS
             self._play_current_track()
         elif key in (KEY_S_LOWER, KEY_S_UPPER):
+            MediaPreview.stop()
             self._on_save_pressed()
         elif key in (KEY_C_LOWER, KEY_C_UPPER):
             self.app.settings.convert_audio = not self.app.settings.convert_audio
             tag = "HD Audio Conditioning (THD/DTS → EAC3/AC3)" if self.app.settings.convert_audio else "Copy (no transcode)"
             self.status_message = f" Audio conditioning: {tag} "
         elif key in (KEY_P_LOWER, KEY_P_UPPER):
-
+            MediaPreview.stop()
             self._profile_keep = ", ".join(self.app.config.keep_langs)
             self._profile_discard = ", ".join(self.app.config.discard_langs)
             self._profile_prefer_ac3 = self.app.config.prefer_ac3_over_hd
             self._profile_field = 0
             self.showing_profile_overlay = True
         elif key in (KEY_O_LOWER, KEY_O_UPPER):
+            MediaPreview.stop()
             # Shortcut: jump straight to output dialog
             self.showing_output_dialog = True
         elif key in (KEY_L_LOWER, KEY_L_UPPER):
+            MediaPreview.stop()
             self._edit_language()
         elif key == curses.KEY_SR:  # Shift+Up - Move Up
             if self.selected_idx > 0:
@@ -982,6 +985,7 @@ class TrackEditor:
                 self.status_message = " No profile to apply. "
         # [D] Donor picker
         elif key in (ord("d"), ord("D")):
+            MediaPreview.stop()
             track = self.media_file.tracks[self.selected_idx]
             if track.codec_type != "audio":
                 self.status_message = " Select an audio track to use Donor import. "
@@ -1007,6 +1011,8 @@ class TrackEditor:
             template_media = self.media_file
             added_count = 0
             for f in self.batch_group.files:
+                if qm.has_pending_task(f.path):
+                    continue
                 f_clone = copy.deepcopy(f)
                 
                 template_by_type = {
@@ -1049,10 +1055,18 @@ class TrackEditor:
                 qm.add_task(f_clone, self.app.settings.output_mode, self.app.settings.convert_audio)
                 added_count += 1
             
+            if added_count == 0:
+                self.status_message = " Error: All files in this batch are already in the queue! "
+                return
+            
             self.status_message = f" Queued {added_count} items! Processing in background. "
         else:
-            qm.add_task(self.media_file, self.app.settings.output_mode, self.app.settings.convert_audio)
-            self.status_message = " Added to Queue! Processing in background. "
+            if qm.has_pending_task(self.media_file.path):
+                self.status_message = " Error: This file is already in the queue! "
+                return
+            else:
+                qm.add_task(self.media_file, self.app.settings.output_mode, self.app.settings.convert_audio)
+                self.status_message = " Added to Queue! Processing in background. "
             
         # Auto-start worker if it's not running
         if hasattr(self.app, "queue_worker") and not self.app.queue_worker.is_running():
@@ -1376,7 +1390,7 @@ class TrackEditor:
             return
 
         # Not editing — navigation mode
-        if key in (KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER):
+        if key in (KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER, KEY_CTRL_C):
             self.showing_profile_overlay = False
         elif key in (curses.KEY_UP, curses.KEY_BTAB):
             self._profile_field = (self._profile_field - 1) % 6
