@@ -20,6 +20,7 @@ class QueuedTask:
     status: str = "pending"  # pending, running, completed, failed
     added_at: str = field(default_factory=lambda: datetime.now().isoformat())
     owner_pid: Optional[int] = None
+    ffmpeg_pid: Optional[int] = None
     error_message: Optional[str] = None
 
     @classmethod
@@ -116,10 +117,19 @@ class QueueManager:
         for t in self._tasks:
             if t.status in ("pending", "running"):
                 # If it's a running task but the owner process is dead, 
-                # we must have crashed or been force-quit. Revert to pending and adopt.
+                # we must have crashed or been force-quit. 
+                # Before adopting, kill the orphaned ffmpeg process if it exists.
                 if t.status == "running" and t.owner_pid is not None and not self._is_pid_running(t.owner_pid):
+                    if t.ffmpeg_pid is not None and self._is_pid_running(t.ffmpeg_pid):
+                        try:
+                            logger.info(f"Killing orphaned ffmpeg process {t.ffmpeg_pid} for task {t.id}")
+                            os.kill(t.ffmpeg_pid, 9) # SIGKILL
+                        except OSError:
+                            pass
+                    
                     t.status = "pending"
                     t.owner_pid = my_pid
+                    t.ffmpeg_pid = None
                     self.save()
                     return t
                     

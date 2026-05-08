@@ -561,6 +561,14 @@ class FileExplorer:
 
         visible_files = sorted_files[self.scroll_idx : self.scroll_idx + list_height]
 
+        queued_paths = {}
+        if hasattr(self.app, "queue_manager"):
+            for t in self.app.queue_manager.get_tasks():
+                if t.status in ("pending", "running"):
+                    path = t.media_file_dict.get('path')
+                    if path:
+                        queued_paths[path] = t.status
+
         for i, filename in enumerate(visible_files):
             idx = i + self.scroll_idx
             attr = curses.A_NORMAL
@@ -688,8 +696,23 @@ class FileExplorer:
 
                 # Format appropriately: DTS is 4 chars, DTS>AC3 is 7 chars.
                 f_dts_tag = dts_tag.ljust(7)
-                # Ensure the total size of track_info is exactly 26 characters
-                track_info = f"[{len(audio_tracks):>2} aud: {f_dts_tag} {a_size_str:>8} ]"
+
+                full_path = os.path.join(self.path, filename)
+                q_status = queued_paths.get(full_path)
+                
+                attr_override = None
+                if q_status == "running":
+                    pct_str = ""
+                    if hasattr(self.app, "queue_worker") and self.app.queue_worker.current_task and self.app.queue_worker.current_task.media_file_dict.get('path') == full_path:
+                        pct_str = f" {self.app.queue_worker.percent}%"
+                    track_info = f"[ {('RUNNING' + pct_str):^23} ]"
+                    attr_override = curses.color_pair(3) | curses.A_BOLD
+                elif q_status == "pending":
+                    track_info = f"[ {'PENDING':^23} ]"
+                    attr_override = curses.color_pair(3) | curses.A_DIM
+                else:
+                    # Ensure the total size of track_info is exactly 27 characters
+                    track_info = f"[{len(audio_tracks):>2} aud: {f_dts_tag} {a_size_str:>8} ]"
                 # Truncate and pad filename to exactly name_col_width
                 display_filename = get_display_name(filename, name_col_width).ljust(name_col_width)
 
@@ -705,8 +728,9 @@ class FileExplorer:
                 line = f" {track_info} {display_filename} {lang_str}  {sz_str}"
 
                 # Draw the base line
+                draw_attr = attr_override if attr_override else attr
                 self.app.stdscr.addstr(
-                    i + FILE_LIST_Y_OFFSET, 0, line[: width - 1].ljust(width - 1), attr
+                    i + FILE_LIST_Y_OFFSET, 0, line[: width - 1].ljust(width - 1), draw_attr
                 )
 
                 # Overwrite size with color if interesting

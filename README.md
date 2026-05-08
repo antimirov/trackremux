@@ -2,7 +2,7 @@
 
 **TrackRemux** is a powerful Terminal User Interface (TUI) tool designed to help you clean up your video library. It allows you to interactively specify audio and subtitle tracks from your video files and remux them into clean, optimized containers without re-encoding the video stream.
 
-*This whole project was vibe coded on a Friday evening out of necessity while organizing the media library on my NAS.*
+*Vibe coded on a Friday evening out of necessity. "I'll just add one more thing" — every Saturday since.*
 
 ![Media Browser](docs/screenshots/media_browser.png)
 

@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.3] - 2026-05-08
+
+### Added
+- **Live Queue Status in TUI**: The Media Browser now actively displays `[ RUNNING xx% ]` or `[ PENDING ]` badges directly on files that are in the background queue.
+- **Active Task Protection**: The Track Editor now displays a prominent `⚙ BACKGROUND PROCESSING: xx%` banner at the top of the screen if you open a file that is actively being remuxed, serving as a visual warning.
+- **Dynamic Versioning**: The `[ ABOUT ]` screen in the Help menu now automatically detects and displays the correct package version from metadata instead of using a hardcoded string. 
+
+### Fixed
+- **Aggressive Zombie Process Hunting**: Fixed a severe issue where an orphaned `ffmpeg` process could indefinitely hang at 100% CPU if TrackRemux crashed or was forcefully killed during a network remux. The Queue Manager now explicitly hunts down and kills (`SIGKILL`) the specific `ffmpeg` PID associated with an abandoned task before adopting it back to the pending queue.
+- **Project Lore Restoration**: Restored the original, authentic "Vibe coded on a Friday evening" project description across the README and Help screens.
+
 ## [0.12.2] - 2026-04-25
 
 ### Fixed

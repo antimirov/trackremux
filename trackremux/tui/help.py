@@ -1,5 +1,11 @@
 import curses
+from importlib.metadata import version, PackageNotFoundError
 from .constants import KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER, KEY_HELP, KEY_H_LOWER, KEY_H_UPPER
+
+try:
+    VERSION = version("trackremux")
+except PackageNotFoundError:
+    VERSION = "0.12.3"
 
 # Help content for various screens
 HELP_CONTENT = {
@@ -33,11 +39,11 @@ or incompatible audio formats.
 - ESC / Q:      Quit the application.
 
 [ ABOUT ]
-TrackRemux v0.10.0
+TrackRemux v{VERSION}
 A "Surgeon's Scalpel" for your media library.
 Vibe coded on a Friday evening. "I'll just add one more thing" — every Saturday since.
 © 2026 Yevgen Antymyrov. MIT License.
-""",
+""".format(VERSION=VERSION),
     "TrackEditor": """
 [ Track Editor ] -- Precise control for remuxing.
 

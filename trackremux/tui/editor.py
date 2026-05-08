@@ -487,8 +487,24 @@ class TrackEditor:
             2, 0, target_info.center(width), curses.color_pair(3) | curses.A_BOLD
         )
 
-        # Status Message
-        if self.status_message:
+        # Queue Status Override
+        queue_banner = None
+        if hasattr(self.app, "queue_manager"):
+            for t in self.app.queue_manager.get_tasks():
+                if t.status in ("pending", "running") and t.media_file_dict.get('path') == self.media_file.path:
+                    if t.status == "running" and hasattr(self.app, "queue_worker") and self.app.queue_worker.current_task and self.app.queue_worker.current_task.id == t.id:
+                        pct = self.app.queue_worker.percent
+                        queue_banner = f" ⚙ BACKGROUND PROCESSING: {pct}% "
+                    else:
+                        queue_banner = f" ⏳ BACKGROUND PENDING "
+                    break
+
+        # Status Message or Queue Banner
+        if queue_banner:
+            self.app.stdscr.addstr(3, 0, queue_banner.center(width), curses.color_pair(3) | curses.A_REVERSE | curses.A_BOLD)
+            if self.status_message:
+                self.app.stdscr.addstr(4, 0, self.status_message.center(width), curses.color_pair(3))
+        elif self.status_message:
             self.app.stdscr.addstr(3, 0, self.status_message.center(width), curses.color_pair(3))
 
         # Tracks List
