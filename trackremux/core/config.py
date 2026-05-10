@@ -28,6 +28,9 @@ class AppConfig:
     keep_langs: List[str] = field(default_factory=list)
     discard_langs: List[str] = field(default_factory=list)
     prefer_ac3_over_hd: bool = False
+    discard_commentaries: bool = False
+    discard_descriptions: bool = False
+    discard_sdh: bool = False
 
     # ------------------------------------------------------------------ #
     # Persistence                                                          #
@@ -51,6 +54,9 @@ class AppConfig:
             f"keep_langs = {_fmt_list(self.keep_langs)}\n",
             f"discard_langs = {_fmt_list(self.discard_langs)}\n",
             f"prefer_ac3_over_hd = {str(self.prefer_ac3_over_hd).lower()}\n",
+            f"discard_commentaries = {str(self.discard_commentaries).lower()}\n",
+            f"discard_descriptions = {str(self.discard_descriptions).lower()}\n",
+            f"discard_sdh = {str(self.discard_sdh).lower()}\n",
         ]
         with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
             fh.writelines(lines)
@@ -70,12 +76,21 @@ class AppConfig:
         for t in media_file.tracks:
             if t.codec_type == "video":
                 continue
+            
+            # 1. Base language decision
             lang = t.language or "und"
             decision = self._should_keep(lang)
-            if decision is not None:
-                states[t.index] = decision
-            else:
-                states[t.index] = t.enabled
+            target_enabled = decision if decision is not None else t.enabled
+            
+            # 2. Rule-based exclusions (Commentary, Description, SDH)
+            if self.discard_commentaries and t.is_commentary:
+                target_enabled = False
+            if self.discard_descriptions and t.is_description:
+                target_enabled = False
+            if self.discard_sdh and t.codec_type == "subtitle" and t.is_sdh:
+                target_enabled = False
+                
+            states[t.index] = target_enabled
 
         if self.prefer_ac3_over_hd:
             from collections import defaultdict
@@ -152,6 +167,12 @@ class AppConfig:
                     cfg.discard_langs = _parse_string_list(val)
                 elif key in ("prefer_ac3_over_hd", "prefer_ac3_over_dts"):
                     cfg.prefer_ac3_over_hd = val.lower() == "true"
+                elif key == "discard_commentaries":
+                    cfg.discard_commentaries = val.lower() == "true"
+                elif key == "discard_descriptions":
+                    cfg.discard_descriptions = val.lower() == "true"
+                elif key == "discard_sdh":
+                    cfg.discard_sdh = val.lower() == "true"
         return cfg
 
 

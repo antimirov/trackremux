@@ -37,6 +37,9 @@ from .constants import (
     KEY_S_UPPER,
     KEY_T_LOWER,
     KEY_T_UPPER,
+    KEY_V_LOWER,
+    KEY_V_UPPER,
+    KEY_CTRL_C,
     MARGIN,
 )
 from .editor import TrackEditor
@@ -56,6 +59,7 @@ class FileExplorer:
         self.app = app
         self.path = os.path.abspath(path)
         self.back_view = back_view
+        self.confirming_quit = False
         self.back_view = back_view
 
         # Initialize empty lists for async loading
@@ -557,6 +561,14 @@ class FileExplorer:
 
         visible_files = sorted_files[self.scroll_idx : self.scroll_idx + list_height]
 
+        queued_paths = {}
+        if hasattr(self.app, "queue_manager"):
+            for t in self.app.queue_manager.get_tasks():
+                if t.status in ("pending", "running"):
+                    path = t.media_file_dict.get('path')
+                    if path:
+                        queued_paths[path] = t.status
+
         for i, filename in enumerate(visible_files):
             idx = i + self.scroll_idx
             attr = curses.A_NORMAL
@@ -588,16 +600,25 @@ class FileExplorer:
 
             if media and getattr(media, "probed", False):
                 audio_tracks = [t for t in media.tracks if t.codec_type == "audio"]
-                audio_size_mb = sum(
-                    (t.bit_rate * media.duration) / 8 / 1024 / 1024
-                    for t in audio_tracks
-                    if t.bit_rate
-                )
+                audio_size_mb = 0
+                any_estimated = False
+                for t in audio_tracks:
+                    if t.bit_rate:
+                        audio_size_mb += (t.bit_rate * media.duration) / 8 / 1024 / 1024
+                        if getattr(t, "bit_rate_is_estimated", False):
+                            any_estimated = True
+                
                 langs = ",".join([t.display_language for t in audio_tracks if t.display_language]) or "und"
                 size_mb = media.size_bytes / 1024 / 1024
 
                 size_str = format_size(size_mb, precision=1)
-                a_size_str = format_size(audio_size_mb, precision=1).replace(" ", "")
+                
+                # Format audio size with ~ if any track size is estimated
+                a_size_val = format_size(audio_size_mb, precision=1).replace(" ", "")
+                if any_estimated:
+                    a_size_str = f"~{a_size_val}"
+                else:
+                    a_size_str = a_size_val
 
                 # Set HD Audio badge logic
                 highest_hd_audio = None
@@ -675,8 +696,23 @@ class FileExplorer:
 
                 # Format appropriately: DTS is 4 chars, DTS>AC3 is 7 chars.
                 f_dts_tag = dts_tag.ljust(7)
-                # Ensure the total size of track_info is exactly 26 characters
-                track_info = f"[{len(audio_tracks):>2} aud: {f_dts_tag} {a_size_str:>8} ]"
+
+                full_path = os.path.join(self.path, filename)
+                q_status = queued_paths.get(full_path)
+                
+                attr_override = None
+                if q_status == "running":
+                    pct_str = ""
+                    if hasattr(self.app, "queue_worker") and self.app.queue_worker.current_task and self.app.queue_worker.current_task.media_file_dict.get('path') == full_path:
+                        pct_str = f" {self.app.queue_worker.percent}%"
+                    track_info = f"[ {('RUNNING' + pct_str):^23} ]"
+                    attr_override = curses.color_pair(3) | curses.A_BOLD
+                elif q_status == "pending":
+                    track_info = f"[ {'PENDING':^23} ]"
+                    attr_override = curses.color_pair(3) | curses.A_DIM
+                else:
+                    # Ensure the total size of track_info is exactly 27 characters
+                    track_info = f"[{len(audio_tracks):>2} aud: {f_dts_tag} {a_size_str:>8} ]"
                 # Truncate and pad filename to exactly name_col_width
                 display_filename = get_display_name(filename, name_col_width).ljust(name_col_width)
 
@@ -692,8 +728,9 @@ class FileExplorer:
                 line = f" {track_info} {display_filename} {lang_str}  {sz_str}"
 
                 # Draw the base line
+                draw_attr = attr_override if attr_override else attr
                 self.app.stdscr.addstr(
-                    i + FILE_LIST_Y_OFFSET, 0, line[: width - 1].ljust(width - 1), attr
+                    i + FILE_LIST_Y_OFFSET, 0, line[: width - 1].ljust(width - 1), draw_attr
                 )
 
                 # Overwrite size with color if interesting
@@ -739,6 +776,27 @@ class FileExplorer:
 
         self._draw_footer(height, width)
 
+        if self.confirming_quit:
+            my_pid = os.getpid()
+            active_tasks = [t for t in self.app.queue_manager.get_tasks() if t.status in ("pending", "running") and t.owner_pid == my_pid]
+            count = len(active_tasks)
+            
+            msg1 = f" You have {count} active task(s) in the background queue. "
+            msg2 = " Quitting will pause them. Resume next time? "
+            msg3 = " [Y] Quit / [N] Cancel "
+            
+            w = max(len(msg1), len(msg2), len(msg3)) + 4
+            h = 5
+            sy = height // 2 - h // 2
+            sx = width // 2 - w // 2
+            
+            for i in range(h):
+                self.app.stdscr.addstr(sy + i, sx, " " * w, curses.color_pair(3))
+                
+            self.app.stdscr.addstr(sy + 1, sx + (w - len(msg1)) // 2, msg1, curses.color_pair(3) | curses.A_BOLD)
+            self.app.stdscr.addstr(sy + 2, sx + (w - len(msg2)) // 2, msg2, curses.color_pair(3))
+            self.app.stdscr.addstr(sy + 3, sx + (w - len(msg3)) // 2, msg3, curses.color_pair(3) | curses.A_BOLD)
+
         self.app.stdscr.refresh()
 
         # Trigger prioritization for current view
@@ -753,7 +811,7 @@ class FileExplorer:
         quit_label = "Back" if self.back_view else "Quit"
         mouse_footer = f"[M] Mouse: {mouse_status}"
         batch_opt = "[B]atch | " if self.batches else ""
-        action_footer = f"[?] Help | [ENTER] Open | {batch_opt}[R]escan | [Q/ESC] {quit_label} "
+        action_footer = f"[?] Help | [ENTER] Open | {batch_opt}[V] Queue | [R]escan | [Q/ESC] {quit_label} "
 
         # Draw left-aligned sort section
         left_text = sort_footer[: width - 1]
@@ -780,10 +838,25 @@ class FileExplorer:
         sorted_files = self._get_sorted_files()
         list_height = height - 5
 
-        if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC):
+        if self.confirming_quit:
+            if key in (ord('y'), ord('Y'), KEY_ENTER):
+                if self.app.mouse_enabled:
+                    self.app.toggle_mouse()
+                self.app.switch_view(None)
+            elif key in (ord('n'), ord('N'), KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC, KEY_CTRL_C):
+                self.confirming_quit = False
+            return
+
+        if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC, KEY_CTRL_C):
             if self.back_view:
                 self.app.switch_view(self.back_view)
             else:
+                my_pid = os.getpid()
+                active_tasks = [t for t in self.app.queue_manager.get_tasks() if t.status in ("pending", "running") and t.owner_pid == my_pid]
+                if active_tasks and not self.confirming_quit:
+                    self.confirming_quit = True
+                    return
+                
                 if self.app.mouse_enabled:
                     self.app.toggle_mouse()
                 self.app.switch_view(None)
@@ -840,6 +913,9 @@ class FileExplorer:
             self.scroll_idx = 0
         elif key in (KEY_HELP, KEY_H_LOWER, KEY_H_UPPER):
             self.app.switch_view(HelpView(self.app, "FileExplorer", back_view=self))
+        elif key in (KEY_V_LOWER, KEY_V_UPPER):
+            from .queue_view import QueueView
+            self.app.switch_view(QueueView(self.app, back_view=self))
         elif key == curses.KEY_UP:
             if self.selected_idx > 0:
                 self.selected_idx -= 1
@@ -897,7 +973,7 @@ class FileExplorer:
                     mouse_footer = f"[M] Mouse: {mouse_status}"
                     batch_opt = "[B]atch | " if self.batches else ""
                     help_opt = "[?] Help | "
-                    action_footer = f"{help_opt}[ENTER] Open | {batch_opt}[R]escan | [Q/ESC] {quit_label} "
+                    action_footer = f"{help_opt}[ENTER] Open | {batch_opt}[V] Queue | [R]escan | [Q/ESC] {quit_label} "
                     right_text = f" {mouse_footer} | {action_footer}"
 
                     # Use dynamic position detection for all buttons
@@ -932,6 +1008,7 @@ class FileExplorer:
                         ("[M]", KEY_M_LOWER),
                         ("[B]atch", KEY_B_LOWER),
                         ("[ENTER]", KEY_ENTER),
+                        ("[V] Queue", KEY_V_LOWER),
                         ("[R]escan", KEY_R_LOWER),
                         ("[Q/ESC]", KEY_Q_LOWER),
                     ]

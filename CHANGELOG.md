@@ -2,6 +2,57 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.3] - 2026-05-08
+
+### Added
+- **Live Queue Status in TUI**: The Media Browser now actively displays `[ RUNNING xx% ]` or `[ PENDING ]` badges directly on files that are in the background queue.
+- **Active Task Protection**: The Track Editor now displays a prominent `⚙ BACKGROUND PROCESSING: xx%` banner at the top of the screen if you open a file that is actively being remuxed, serving as a visual warning.
+- **Dynamic Versioning**: The `[ ABOUT ]` screen in the Help menu now automatically detects and displays the correct package version from metadata instead of using a hardcoded string. 
+
+### Fixed
+- **Aggressive Zombie Process Hunting**: Fixed a severe issue where an orphaned `ffmpeg` process could indefinitely hang at 100% CPU if TrackRemux crashed or was forcefully killed during a network remux. The Queue Manager now explicitly hunts down and kills (`SIGKILL`) the specific `ffmpeg` PID associated with an abandoned task before adopting it back to the pending queue.
+- **Project Lore Restoration**: Restored the original, authentic "Vibe coded on a Friday evening" project description across the README and Help screens.
+
+## [0.12.2] - 2026-04-25
+
+### Fixed
+- **Startup Crash Hotfix**: Fixed a critical `NameError` introduced in 0.12.1 where missing imports for `KEY_CTRL_C` caused the application to crash instantly upon launch before the UI could even render.
+
+## [0.12.1] - 2026-04-25
+
+### Fixed
+- **Multi-Instance Safety**: Added PID-based ownership to queued tasks. If you run multiple instances of TrackRemux (e.g., in different directories), they will no longer steal each other's background tasks. A central queue is maintained, and "abandoned" tasks from closed instances are automatically adopted by active ones. Queue view (`[V]`) now clearly labels tasks owned by other instances.
+- **Atomic Queue Saves**: Upgraded queue file saving to use atomic file swaps, preventing file corruption when multiple instances try to save the queue simultaneously.
+- **Duplicate Queue Prevention**: Added strict guards to the Track Editor. If a file is already `pending` or `running` in the background queue, trying to queue it again will be blocked with an error message, preventing duplicated processing and wasted resources.
+- **Audio Previews**: Fixed a bug where track audio previews would continue playing in the background when navigating to overlays (like Save, Profile, or Language dialogs).
+- **Quit Confirmation**: Added a safety dialog when attempting to quit the application (`Q` or `ESC`) while there are active tasks in the background queue. This prevents accidental interruption of your remuxing batch.
+- **Zombie Task Recovery**: Fixed a bug where background worker threads were not auto-starting upon application launch, causing "zombie" tasks from crashed or forcefully closed terminal sessions to be permanently ignored. The worker now auto-starts, detects dead processes, and automatically adopts and resumes their stuck tasks.
+- **Ctrl-C Safety**: Added `Ctrl-C` to the standard exit handlers. Pressing `Ctrl-C` will now correctly trigger the active tasks confirmation dialog instead of instantly and silently killing the app without warning.
+
+## [0.12.0] - 2026-04-24
+
+### Added
+- **Asynchronous Batch Queueing**: Remuxing operations are now fully offloaded to a persistent background worker. Pressing `[S]ave` instantly queues the file without blocking the UI, allowing you to quickly queue up dozens of files and walk away.
+- **Background Queue View**: Added a new dedicated `[V] Queue` view that lets you monitor the background worker, see realtime progress of ongoing jobs, and view detailed stats for queued and completed tasks directly from the TUI.
+
+## [0.11.0] - 2026-04-24
+
+### Added
+- **Auto-Exclude Commentary & Extras**: Added a major new feature to automatically filter out non-main tracks. You can now configure your profile to discard:
+  - **Commentaries**: Tracks with "Commentary", "Director's", "VFX" in the title or marked with `comment` disposition.
+  - **Audio Descriptions**: Tracks for the visually impaired.
+  - **SDH Subtitles**: "Subtitles for the Deaf and Hard of Hearing" (e.g. titles with `(SDH)`).
+- **Profile UI Update**: Expanded the `[P] Profile` overlay with three new toggles for these exclusions, providing instant library-wide cleanup.
+
+### Fixed
+- **Improved Size Estimation**: Expanded bitrate estimation to support **Opus**, **Vorbis**, **TrueHD**, **ALAC**, and **DTS-HD MA** tracks. Also added a threshold to ignore "dummy" reported bitrates (< 1kbps) that were previously causing files to show as 0.0MB.
+
+## [0.10.3] - 2026-04-23
+
+### Fixed
+- **0.0MB Audio Size Bug**: Resolved an issue where audio tracks with missing bitrate information in their metadata were reported as "0.0MB". Added a conservative bitrate estimation fallback (e.g., 192kbps for HE-AAC 5.1) and updated the TUI to indicate estimated sizes with a `~` prefix (e.g., `~351.5MB`).
+- **Robust Metadata Probing**: Improved stream bitrate detection to perform case-insensitive searches for tags like `BPS` and `bitrate`, ensuring better compatibility with older remuxes.
+
 ## [0.10.2] - 2026-04-03
 
 ### Changed

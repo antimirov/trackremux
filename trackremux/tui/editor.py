@@ -38,6 +38,7 @@ from .constants import (
     SEEK_STEP_SECONDS,
     TRACK_EDITOR_INFO_HEIGHT,
     TRACK_LIST_Y_OFFSET,
+    KEY_CTRL_C,
 )
 from .formatters import format_duration, format_size
 from .help import HelpView
@@ -72,7 +73,10 @@ class TrackEditor:
         self._profile_keep = ", ".join(self.app.config.keep_langs)
         self._profile_discard = ", ".join(self.app.config.discard_langs)
         self._profile_prefer_ac3 = self.app.config.prefer_ac3_over_hd
-        self._profile_field = 0  # 0=keep, 1=discard, 2=ac3 toggle
+        self._profile_discard_commentaries = self.app.config.discard_commentaries
+        self._profile_discard_descriptions = self.app.config.discard_descriptions
+        self._profile_discard_sdh = self.app.config.discard_sdh
+        self._profile_field = 0  # 0=keep, 1=discard, 2=ac3, 3=comm, 4=desc, 5=sdh
         self._profile_cursor = len(self._profile_keep)
         self._profile_editing = False  # True when actively editing a text field
         self._profile_edit_backup = ""  # Backup for ESC discard
@@ -483,8 +487,24 @@ class TrackEditor:
             2, 0, target_info.center(width), curses.color_pair(3) | curses.A_BOLD
         )
 
-        # Status Message
-        if self.status_message:
+        # Queue Status Override
+        queue_banner = None
+        if hasattr(self.app, "queue_manager"):
+            for t in self.app.queue_manager.get_tasks():
+                if t.status in ("pending", "running") and t.media_file_dict.get('path') == self.media_file.path:
+                    if t.status == "running" and hasattr(self.app, "queue_worker") and self.app.queue_worker.current_task and self.app.queue_worker.current_task.id == t.id:
+                        pct = self.app.queue_worker.percent
+                        queue_banner = f" ⚙ BACKGROUND PROCESSING: {pct}% "
+                    else:
+                        queue_banner = f" ⏳ BACKGROUND PENDING "
+                    break
+
+        # Status Message or Queue Banner
+        if queue_banner:
+            self.app.stdscr.addstr(3, 0, queue_banner.center(width), curses.color_pair(3) | curses.A_REVERSE | curses.A_BOLD)
+            if self.status_message:
+                self.app.stdscr.addstr(4, 0, self.status_message.center(width), curses.color_pair(3))
+        elif self.status_message:
             self.app.stdscr.addstr(3, 0, self.status_message.center(width), curses.color_pair(3))
 
         # Tracks List
@@ -512,12 +532,14 @@ class TrackEditor:
             track_size_str = ""
             if track.bit_rate:
                 size_mb = (track.bit_rate * self.media_file.duration) / 8 / 1024 / 1024
-                track_size_str = f"[{format_size(size_mb, precision=1)}]"
+                prefix_est = "~" if getattr(track, "bit_rate_is_estimated", False) else ""
+                track_size_str = f"[{prefix_est}{format_size(size_mb, precision=1)}]"
 
             source_tag = ""
             if track.source_path:
                 short_name = self._get_short_source_name(track.source_path)
-                source_tag = f" [EXT: {short_name} #{track.index}]"
+                # Ensure there is a separator before the external source tag
+                source_tag = f" | [EXT: {short_name} #{track.index}]"
 
             # Truncate source tag if too long?
             # Max width logic?
@@ -783,7 +805,7 @@ class TrackEditor:
                     pass
             return
 
-        if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC):
+        if key in (KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC, KEY_CTRL_C):
             if self._has_changes():
                 self.confirming_exit = True
             else:
@@ -829,12 +851,12 @@ class TrackEditor:
                     if width < 110:
                         footer = (
                             f" [SPC] Tgl | [ENT] Play | [L] Lang | [S+↑/↓] Move"
-                            f" | [C] {audio_tag} | [S] Save | [P] Prof | [M] {mouse_status} | [Q] Back "
+                            f" | [C] {audio_tag} | [S] Start | [E] Enqueue | [P] Prof | [M] {mouse_status} | [Q] Back "
                         )
                     else:
                         footer = (
                             f" [SPACE] Toggle | [ENTER] Play | [L] Lang | [Shift+↑/↓] Reorder"
-                            f" | [C] Audio:{audio_tag} | [S] Save | [P] Profile | [M] Mouse:{mouse_status} | [Q/ESC] Back "
+                            f" | [C] Audio:{audio_tag} | [S] Start | [E] Enqueue | [P] Profile | [M] Mouse:{mouse_status} | [Q/ESC] Back "
                         )
 
                     # Center the footer
@@ -929,22 +951,25 @@ class TrackEditor:
                 self.current_preview_time += SEEK_STEP_SECONDS
             self._play_current_track()
         elif key in (KEY_S_LOWER, KEY_S_UPPER):
+            MediaPreview.stop()
             self._on_save_pressed()
         elif key in (KEY_C_LOWER, KEY_C_UPPER):
             self.app.settings.convert_audio = not self.app.settings.convert_audio
             tag = "HD Audio Conditioning (THD/DTS → EAC3/AC3)" if self.app.settings.convert_audio else "Copy (no transcode)"
             self.status_message = f" Audio conditioning: {tag} "
         elif key in (KEY_P_LOWER, KEY_P_UPPER):
-
+            MediaPreview.stop()
             self._profile_keep = ", ".join(self.app.config.keep_langs)
             self._profile_discard = ", ".join(self.app.config.discard_langs)
             self._profile_prefer_ac3 = self.app.config.prefer_ac3_over_hd
             self._profile_field = 0
             self.showing_profile_overlay = True
         elif key in (KEY_O_LOWER, KEY_O_UPPER):
+            MediaPreview.stop()
             # Shortcut: jump straight to output dialog
             self.showing_output_dialog = True
         elif key in (KEY_L_LOWER, KEY_L_UPPER):
+            MediaPreview.stop()
             self._edit_language()
         elif key == curses.KEY_SR:  # Shift+Up - Move Up
             if self.selected_idx > 0:
@@ -977,6 +1002,7 @@ class TrackEditor:
                 self.status_message = " No profile to apply. "
         # [D] Donor picker
         elif key in (ord("d"), ord("D")):
+            MediaPreview.stop()
             track = self.media_file.tracks[self.selected_idx]
             if track.codec_type != "audio":
                 self.status_message = " Select an audio track to use Donor import. "
@@ -984,41 +1010,87 @@ class TrackEditor:
                 self._open_donor_overlay()
 
     def _on_save_pressed(self):
-        """Called when [S] is pressed.  Shows output mode dialog once per session."""
+        """Called when [S] is pressed. Shows output mode dialog once per session."""
         if not self.app.settings.output_mode_chosen:
             self.showing_output_dialog = True
         else:
             self._start_conversion()
 
     def _start_conversion(self):
-        """Commits changes and switches to ProgressView."""
+        """Commits changes, queues the task, and auto-starts the background worker."""
         self.commit_changes()
+
+        from ..core.queue import QueueManager
+        import copy
+        qm = self.app.queue_manager
+        
         if self.batch_group:
-            from .batch_progress import BatchProgressView
+            template_media = self.media_file
+            added_count = 0
+            for f in self.batch_group.files:
+                if qm.has_pending_task(f.path):
+                    continue
+                f_clone = copy.deepcopy(f)
+                
+                template_by_type = {
+                    "video": [t for t in template_media.tracks if t.codec_type == "video"],
+                    "audio": [t for t in template_media.tracks if t.codec_type == "audio"],
+                    "subtitle": [t for t in template_media.tracks if t.codec_type == "subtitle"],
+                }
+                target_by_type = {
+                    "video": [t for t in f_clone.tracks if t.codec_type == "video"],
+                    "audio": [t for t in f_clone.tracks if t.codec_type == "audio"],
+                    "subtitle": [t for t in f_clone.tracks if t.codec_type == "subtitle"],
+                }
 
-            self.app.switch_view(
-                BatchProgressView(
-                    self.app,
-                    self.batch_group,
-                    self.media_file,
-                    self,
-                    output_mode=self.app.settings.output_mode,
-                    convert_audio=self.app.settings.convert_audio,
-                )
-            )
-            return
+                tmpl_logical_pos = {}
+                for ctype, tracks in template_by_type.items():
+                    for i, t in enumerate(tracks):
+                        tmpl_logical_pos[id(t)] = (ctype, i)
 
-        from .progress import ProgressView
+                new_tracks = []
+                for tmpl in template_media.tracks:
+                    ctype, pos = tmpl_logical_pos[id(tmpl)]
+                    target_typed_list = target_by_type.get(ctype, [])
+                    if pos < len(target_typed_list):
+                        t_track = target_typed_list[pos]
+                        t_track.enabled = tmpl.enabled
+                        t_track.language = tmpl.language
+                        t_track.tags = dict(tmpl.tags)
+                        new_tracks.append(t_track)
 
-        self.app.switch_view(
-            ProgressView(
-                self.app,
-                self.media_file,
-                self,
-                output_mode=self.app.settings.output_mode,
-                convert_audio=self.app.settings.convert_audio,
-            )
-        )
+                if len(new_tracks) == len(f_clone.tracks):
+                    f_clone.tracks = new_tracks
+                else:
+                    for i, t_track in enumerate(f_clone.tracks):
+                        if i < len(template_media.tracks):
+                            tmpl = template_media.tracks[i]
+                            t_track.enabled = tmpl.enabled
+                            t_track.language = tmpl.language
+                            t_track.tags = dict(tmpl.tags)
+
+                qm.add_task(f_clone, self.app.settings.output_mode, self.app.settings.convert_audio)
+                added_count += 1
+            
+            if added_count == 0:
+                self.status_message = " Error: All files in this batch are already in the queue! "
+                return
+            
+            self.status_message = f" Queued {added_count} items! Processing in background. "
+        else:
+            if qm.has_pending_task(self.media_file.path):
+                self.status_message = " Error: This file is already in the queue! "
+                return
+            else:
+                qm.add_task(self.media_file, self.app.settings.output_mode, self.app.settings.convert_audio)
+                self.status_message = " Added to Queue! Processing in background. "
+            
+        # Auto-start worker if it's not running
+        if hasattr(self.app, "queue_worker") and not self.app.queue_worker.is_running():
+            self.app.queue_worker.start()
+            
+        # Clear state and drop back to explorer
+        self.app.switch_view(self.back_view)
 
     def _draw_output_dialog(self, height, width):
         """Draw the output-mode selection overlay with contextual output preview."""
@@ -1198,7 +1270,7 @@ class TrackEditor:
     def _draw_profile_overlay(self, height, width):
         """Draw the profile save overlay."""
         mw = 58
-        mh = 13
+        mh = 16
         my = (height - mh) // 2
         mx = (width - mw) // 2
         for r in range(mh):
@@ -1216,10 +1288,16 @@ class TrackEditor:
         val_w = mw - label_w - 4
 
         ac3_val = "[yes]" if self._profile_prefer_ac3 else "[no] "
+        comm_val = "[yes]" if self._profile_discard_commentaries else "[no] "
+        desc_val = "[yes]" if self._profile_discard_descriptions else "[no] "
+        sdh_val = "[yes]" if self._profile_discard_sdh else "[no] "
         fields = [
             ("Keep languages:", self._profile_keep),
             ("Discard languages:", self._profile_discard),
             ("Prefer AC3 over HD Aud:", ac3_val),
+            ("Discard Commentaries:", comm_val),
+            ("Discard Descriptions:", desc_val),
+            ("Discard SDH Subs:", sdh_val),
         ]
         for i, (label, val) in enumerate(fields):
             is_active = self._profile_field == i
@@ -1257,7 +1335,7 @@ class TrackEditor:
             ctx = "  [ENTER] Edit (comma-separated, e.g. eng, fra)"
         else:
             ctx = "  [ENTER/SPACE] Toggle"
-        self.app.stdscr.addstr(my + 7, mx, ctx[:mw], curses.A_DIM)
+        self.app.stdscr.addstr(my + mh - 4, mx, ctx[:mw], curses.A_DIM)
 
         hint = "  [TAB/↑↓] Navigate | [ESC] Close"
         self.app.stdscr.addstr(my + mh - 2, mx, hint[:mw], curses.color_pair(3))
@@ -1280,6 +1358,9 @@ class TrackEditor:
             s.strip() for s in self._profile_discard.split(",") if s.strip()
         ]
         self.app.config.prefer_ac3_over_hd = self._profile_prefer_ac3
+        self.app.config.discard_commentaries = self._profile_discard_commentaries
+        self.app.config.discard_descriptions = self._profile_discard_descriptions
+        self.app.config.discard_sdh = self._profile_discard_sdh
         self.app.config.save()
         from ..core.config import CONFIG_PATH
 
@@ -1326,16 +1407,28 @@ class TrackEditor:
             return
 
         # Not editing — navigation mode
-        if key in (KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER):
+        if key in (KEY_ESC, KEY_Q_LOWER, KEY_Q_UPPER, KEY_CTRL_C):
             self.showing_profile_overlay = False
         elif key in (curses.KEY_UP, curses.KEY_BTAB):
-            self._profile_field = (self._profile_field - 1) % 3
+            self._profile_field = (self._profile_field - 1) % 6
         elif key in (curses.KEY_DOWN, ord("\t")):
-            self._profile_field = (self._profile_field + 1) % 3
+            self._profile_field = (self._profile_field + 1) % 6
         elif key == KEY_ENTER:
             if self._profile_field == 2:
-                # Boolean: toggle and auto-save
+                # AC3 toggle
                 self._profile_prefer_ac3 = not self._profile_prefer_ac3
+                self._profile_save()
+            elif self._profile_field == 3:
+                # Commentary toggle
+                self._profile_discard_commentaries = not self._profile_discard_commentaries
+                self._profile_save()
+            elif self._profile_field == 4:
+                # Description toggle
+                self._profile_discard_descriptions = not self._profile_discard_descriptions
+                self._profile_save()
+            elif self._profile_field == 5:
+                # SDH toggle
+                self._profile_discard_sdh = not self._profile_discard_sdh
                 self._profile_save()
             else:
                 # Text field: enter editing mode
@@ -1343,8 +1436,15 @@ class TrackEditor:
                 self._profile_edit_backup = self._profile_get_text()
                 self._profile_cursor = len(self._profile_get_text())
                 self._profile_save_msg = ""
-        elif self._profile_field == 2 and key in (KEY_SPACE,):
-            self._profile_prefer_ac3 = not self._profile_prefer_ac3
+        elif self._profile_field >= 2 and key in (KEY_SPACE,):
+            if self._profile_field == 2:
+                self._profile_prefer_ac3 = not self._profile_prefer_ac3
+            elif self._profile_field == 3:
+                self._profile_discard_commentaries = not self._profile_discard_commentaries
+            elif self._profile_field == 4:
+                self._profile_discard_descriptions = not self._profile_discard_descriptions
+            elif self._profile_field == 5:
+                self._profile_discard_sdh = not self._profile_discard_sdh
             self._profile_save()
 
     def _edit_language(self):

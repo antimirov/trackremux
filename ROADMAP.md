@@ -19,6 +19,9 @@ Broadened DTS conditioning to **HD Audio** (TrueHD, DTS, PCM). Explorer UI dynam
 ### Donor Track Import / Hybrid Remuxing (v0.9.0)
 Import a dubbed audio track from a second file with automatic sync detection based on `ebur128` Loudness Envelopes. Features a built-in Donor File Picker overlay with automatic duration filtering (`[Len: %]`) and Bulk Deep Analysis (`[A]`) that exhaustively scans all donor audio tracks to find the perfect sub-millisecond sync offset without manual guesswork.
 
+### Asynchronous Background Queue (v0.12.0)
+Remuxing operations are now fully offloaded to a persistent background worker. Pressing `[S]ave` instantly queues the file without blocking the UI, allowing for continuous library management while processing occurs. Added a dedicated `[V] Queue` view for monitoring task status, progress, and detailed track stats. Main view automatically refreshes metadata as tasks complete.
+
 ---
 
 ### Smart Defaults & Profile Editor (v0.7.0)
@@ -108,3 +111,14 @@ See **[memory/subtitle_sync.md](memory/subtitle_sync.md)** for implementation de
 - **Statistics Dashboard**: Track cumulative space saved, files processed, most common languages.
 - **Windows Audio Preview**: Native PowerShell media hooks for Windows environments.
 - **Modern TUI Migration**: Transition from `curses` to **Textual** for modal pop-ups and styling.
+
+---
+
+## 📸 Documentation & Marketing
+*Screenshots needed for a complete README walkthrough.*
+
+- [ ] **Batch Selector (`[B]`)**: Show grouped seasons/series view.
+- [ ] **Profile Manager (`[P]`)**: Interactive configuration overlay.
+- [ ] **Donor Sync Analysis (`[D]`)**: Success state of sync analysis.
+- [ ] **Output Mode Dialog (`[S]`)**: Selection menu for Overwrite/Local/Remote.
+- [ ] **Keyboard Shortcut Help (`[?]`)**: The full-screen help reference.

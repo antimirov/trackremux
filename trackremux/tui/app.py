@@ -55,8 +55,22 @@ class TrackRemuxApp:
         # Initialize Global Scanner
         self.scanner = GlobalScanner()
 
-        # Initialize Donor Cache (populated by FileExplorer as files are scanned)
+        # Initialize Donor Cache
         self.donor_cache = DonorCache()
+
+        # Initialize Queue subsystem
+        from ..core.queue import QueueManager
+        from ..core.worker import QueueWorker
+        self.queue_manager = QueueManager()
+        self.queue_worker = QueueWorker(self.queue_manager)
+        
+        self.pending_refreshes = set()
+        self.queue_worker.on_task_completed = self._on_task_completed
+
+    def _on_task_completed(self, task):
+        filename = os.path.basename(task.media_file_dict.get('path', ''))
+        if filename:
+            self.pending_refreshes.add(filename)
 
     def run(self):
         try:
@@ -74,13 +88,20 @@ class TrackRemuxApp:
                 self.current_view = FileExplorer(self, self.start_path)
 
             self.stdscr.timeout(APP_TIMEOUT_MS)  # Non-blocking getch
+            
+            # Start worker immediately to pick up any pending or abandoned tasks
+            if hasattr(self, "queue_worker") and not self.queue_worker.is_running():
+                self.queue_worker.start()
+
             while self.current_view:
+                if self.pending_refreshes:
+                    if hasattr(self.current_view, "refresh_metadata"):
+                        refs = list(self.pending_refreshes)
+                        self.pending_refreshes.clear()
+                        self.current_view.refresh_metadata(refs)
+                        
                 self.current_view.draw()
                 key = self.stdscr.getch()
-
-                # Handle Ctrl-C (3) explicitly
-                if key == KEY_CTRL_C:
-                    raise KeyboardInterrupt
 
                 self.current_view.handle_input(key)
         except KeyboardInterrupt:
@@ -96,7 +117,11 @@ class TrackRemuxApp:
 
             # Ensure audio stops when quitting
             MediaPreview.stop()
-            # Stop scanner
+            
+            # Stop worker
+            if hasattr(self, "queue_worker"):
+                self.queue_worker.stop()
+                
             # Stop scanner
             if (
                 self.current_view
