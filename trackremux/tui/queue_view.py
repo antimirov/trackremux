@@ -163,7 +163,7 @@ class QueueView:
         elif key in (ord('d'), ord('D')):
             if self.tasks:
                 task = self.tasks[self.selected_idx]
-                if task.status != "running":
+                if task.status != "running" or not self.worker.is_running():
                     self.qm.remove_task(task.id)
                     self._refresh_tasks()
         elif key in (ord('c'), ord('C')):

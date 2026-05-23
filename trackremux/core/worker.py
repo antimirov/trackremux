@@ -28,6 +28,7 @@ class QueueWorker:
     def start(self):
         if self._thread and self._thread.is_alive():
             return
+        self.qm.clean_stale_tasks()
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -71,12 +72,19 @@ class QueueWorker:
             output_path = resolve_output_path(media_file, output_mode)
             staging_output = resolve_staging_path(output_path)
             
-            self.current_process = MediaConverter.convert(media_file, staging_output, task.convert_audio)
+            from .config import AppConfig
+            config = AppConfig.load()
+            
+            self.current_process = MediaConverter.convert(
+                media_file, staging_output, task.convert_audio
+            )
+            
+            estimated_size_mb = MediaConverter.estimate_output_size(media_file, task.convert_audio) / 1024 / 1024
             
             for line in self.current_process.stdout:
                 if self._stop_event.is_set():
                     break
-                self._update_progress(line.strip(), media_file.duration)
+                self._update_progress(line.strip(), media_file.duration, estimated_size_mb)
                 
             if self._stop_event.is_set():
                 self.qm.update_task_status(task.id, "pending")
@@ -98,7 +106,7 @@ class QueueWorker:
             self.current_task = None
             self.current_process = None
 
-    def _update_progress(self, line: str, duration: float):
+    def _update_progress(self, line: str, duration: float, estimated_size_mb: float = 0.0):
         if not line:
             return
             
@@ -117,7 +125,23 @@ class QueueWorker:
                                 self.percent = min(99, time_pct)
                     except Exception:
                         pass
+                elif key == "total_size" and value.isdigit() and estimated_size_mb > 0:
+                    actual_size_mb = int(value) / 1024 / 1024
+                    size_pct = int((actual_size_mb / estimated_size_mb) * 100)
+                    if size_pct > self.percent:
+                        self.percent = min(99, size_pct)
                 elif key == "progress" and value == "end":
                     self.percent = 100
         elif line.startswith("frame="):
             self.status_line = line
+            if duration > 0 and "time=" in line:
+                try:
+                    time_str = line.split("time=")[1].split()[0]
+                    if time_str != "N/A":
+                        h, m, s = time_str.split(":")
+                        current_seconds = float(h) * 3600 + float(m) * 60 + float(s)
+                        time_pct = int((current_seconds / duration) * 100)
+                        if time_pct > self.percent:
+                            self.percent = min(99, time_pct)
+                except Exception:
+                    pass

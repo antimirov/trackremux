@@ -728,7 +728,14 @@ class FileExplorer:
                 line = f" {track_info} {display_filename} {lang_str}  {sz_str}"
 
                 # Draw the base line
-                draw_attr = attr_override if attr_override else attr
+                if idx == self.selected_idx:
+                    draw_attr = attr
+                    if attr_override:
+                        # Keep bold/dim/etc but use selection color
+                        draw_attr |= (attr_override & curses.A_ATTRIBUTES & ~curses.A_COLOR)
+                else:
+                    draw_attr = attr_override if attr_override else attr
+
                 self.app.stdscr.addstr(
                     i + FILE_LIST_Y_OFFSET, 0, line[: width - 1].ljust(width - 1), draw_attr
                 )

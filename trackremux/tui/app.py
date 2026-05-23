@@ -82,6 +82,58 @@ class TrackRemuxApp:
 
             curses.curs_set(0)  # Hide cursor
 
+            # Check for failed tasks on startup
+            failed_tasks = self.queue_manager.get_tasks("failed")
+            if failed_tasks:
+                self.stdscr.erase()
+                height, width = self.stdscr.getmaxyx()
+                
+                lines = [
+                    f"  There are {len(failed_tasks)} failed jobs from previous runs.",
+                    "",
+                    "  Do you want to re-queue them as pending",
+                    "  to try running them again?",
+                    "",
+                    "  [Y] Yes, re-queue them   [N] No, leave them failed"
+                ]
+                
+                mw = max(56, max(len(ln) + 4 for ln in lines))
+                mw = min(mw, width - 4)
+                mh = len(lines) + 4
+                my = (height - mh) // 2
+                mx = (width - mw) // 2
+                
+                # Draw background box
+                for r in range(mh):
+                    self.stdscr.addstr(my + r, mx, " " * mw, curses.color_pair(3))
+                    
+                # Title
+                title = "─" * (mw - 2)
+                title_text = " Failed Jobs Detected "
+                tp = (len(title) - len(title_text)) // 2
+                title = title[:tp] + title_text + title[tp + len(title_text) :]
+                self.stdscr.addstr(my, mx + 1, title[: mw - 2], curses.color_pair(3) | curses.A_BOLD)
+                
+                # Content
+                for i, ln in enumerate(lines):
+                    self.stdscr.addstr(my + 2 + i, mx, ln[:mw], curses.color_pair(3))
+                    
+                self.stdscr.refresh()
+                
+                # Block for keypress
+                while True:
+                    key = self.stdscr.getch()
+                    if key in (ord('y'), ord('Y')):
+                        # Re-queue failed tasks
+                        for task in failed_tasks:
+                            task.status = "pending"
+                            task.error_message = None
+                        self.queue_manager.save()
+                        break
+                    elif key in (ord('n'), ord('N'), 27):  # ESC or N
+                        break
+                    time.sleep(0.05)
+
             if self.single_file:
                 self.current_view = TrackEditor(self, self.start_path)
             else:

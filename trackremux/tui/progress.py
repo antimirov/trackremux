@@ -403,13 +403,30 @@ class ProgressView:
                             pass
                     elif key == "total_size" and value.isdigit():
                         self.actual_size_mb = int(value) / 1024 / 1024
+                        if self.estimated_size_mb > 0:
+                            size_pct = int((self.actual_size_mb / self.estimated_size_mb) * 100)
+                            if size_pct > self.percent:
+                                self.percent = min(99, size_pct)
+                            if self.media_file.duration > 0:
+                                est_sec = (self.actual_size_mb / self.estimated_size_mb) * self.media_file.duration
+                                self._current_seconds = max(self._current_seconds, est_sec)
                     elif key == "progress" and value == "end":
                         self.percent = 99  # signal end; 100 is set in _run_conversion after process.wait()
 
         if line.startswith("frame="):
-            # Just update the frame status — no lock needed (GIL protects simple assignment)
-            # We'll inject this into the visible log slice in draw() without touching self.logs
             self.frame_status = line
+            if self.media_file.duration > 0 and "time=" in line:
+                try:
+                    time_str = line.split("time=")[1].split()[0]
+                    if time_str != "N/A":
+                        h, m, s = time_str.split(":")
+                        current_seconds = float(h) * 3600 + float(m) * 60 + float(s)
+                        time_pct = int((current_seconds / self.media_file.duration) * 100)
+                        if time_pct > self.percent:
+                            self.percent = min(99, time_pct)
+                            self._current_seconds = max(self._current_seconds, current_seconds)
+                except Exception:
+                    pass
         elif not is_progress_internal:
             with self.logs_lock:
                 for part in line.split("\r"):

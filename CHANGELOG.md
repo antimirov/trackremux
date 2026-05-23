@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.0] - 2026-05-23
+
+### Added
+- **Startup Failed-Jobs Prompt**: On launch, if any tasks in the persistent queue have `failed` status from a previous run (e.g. due to a network dropout), the TUI now shows a modal dialog prompting you to re-queue them all to `pending` with a single `[Y]` keypress, or leave them failed with `[N]`/`ESC`.
+
+### Fixed
+- **Selection Highlight Override Bug**: Files displayed with a status colour override in the file browser (e.g. already queued or completed) were overriding the cursor selection background, making the active row invisible when scrolling over them. The row-drawing logic now always enforces the selection colour on the highlighted row while keeping any status attributes (bold/dim) cleanly layered on top.
+- **Ghost Task Double-Bind Lock**: Deleting a task from the queue while it was technically in `running` state was silently blocked by a safety guard. If the underlying `ffmpeg` process had already died but the task never transitioned away from `running`, users were locked out: they could not delete the task and could not re-add the file because `has_pending_task()` still considered it active. The deletion guard in the Queue View is now relaxed to `task.status != "running" or not self.worker.is_running()` — pausing the queue lets you delete any task, including ghost ones.
+- **Worker Thread Restart Leaves Ghost Running Tasks**: Stopping and restarting the background worker within the same process session (e.g. pausing/resuming the queue) left the previous task's `status = "running"` with the current PID. `get_next_pending()` would then skip it forever because the owner looked alive. `QueueWorker.start()` now calls `clean_stale_tasks()` before spawning the thread, automatically resetting any orphan running tasks owned by the current process back to `pending`.
+- **Progress Percentage Stalling on Stream-Copy Jobs**: The progress bar could stall at 0% for pure remux (stream-copy) operations that produce no `frame=` events. The ffmpeg progress parser now additionally reads `total_size` bytes and compares against the pre-calculated `estimated_size_mb`, and also extracts the `time=` field from inline `frame=...` status lines, ensuring smooth percentage and ETA updates even for fast stream-copy tasks.
+
 ## [0.12.3] - 2026-05-08
 
 ### Added

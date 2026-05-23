@@ -65,6 +65,8 @@ class QueueManager:
             
         self._tasks: List[QueuedTask] = []
         self.load()
+        self.clean_stale_tasks()
+
 
     def load(self):
         """Load the queue from disk."""
@@ -119,7 +121,7 @@ class QueueManager:
                 # If it's a running task but the owner process is dead, 
                 # we must have crashed or been force-quit. 
                 # Before adopting, kill the orphaned ffmpeg process if it exists.
-                if t.status == "running" and t.owner_pid is not None and not self._is_pid_running(t.owner_pid):
+                if t.status == "running" and t.owner_pid is not None and not self._is_owner_alive(t.owner_pid):
                     if t.ffmpeg_pid is not None and self._is_pid_running(t.ffmpeg_pid):
                         try:
                             logger.info(f"Killing orphaned ffmpeg process {t.ffmpeg_pid} for task {t.id}")
@@ -138,7 +140,7 @@ class QueueManager:
                     # 1. We own it
                     # 2. It has no owner (legacy)
                     # 3. The owner is dead
-                    if t.owner_pid is None or t.owner_pid == my_pid or not self._is_pid_running(t.owner_pid):
+                    if t.owner_pid is None or t.owner_pid == my_pid or not self._is_owner_alive(t.owner_pid):
                         # If it's abandoned, we take ownership
                         if t.owner_pid != my_pid:
                             t.owner_pid = my_pid
@@ -153,6 +155,39 @@ class QueueManager:
         except OSError:
             return False
         return True
+
+    def _is_owner_alive(self, pid: int) -> bool:
+        """Check if the owner process is still alive and is a Python/trackremux process."""
+        if pid == os.getpid():
+            return True
+        import subprocess
+        try:
+            cmd = ["ps", "-p", str(pid), "-o", "command="]
+            output = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+            output_lower = output.lower()
+            return "python" in output_lower or "trackremux" in output_lower
+        except Exception:
+            # Fallback to standard process check
+            return self._is_pid_running(pid)
+
+    def clean_stale_tasks(self):
+        """Reset any tasks marked as running that belong to dead or non-trackremux processes,
+        or that belong to our own PID from a previous launch on startup."""
+        my_pid = os.getpid()
+        changed = False
+        for t in self._tasks:
+            if t.status == "running":
+                # On startup, we are not running any tasks, so if it has our PID, it's stale.
+                # If it belongs to another PID, check if that PID is alive and is a trackremux process.
+                if t.owner_pid is None or t.owner_pid == my_pid or not self._is_owner_alive(t.owner_pid):
+                    logger.info(f"Resetting stale running task {t.id} to pending")
+                    t.status = "pending"
+                    t.owner_pid = None
+                    t.ffmpeg_pid = None
+                    changed = True
+        if changed:
+            self.save()
+
 
     def update_task_status(self, task_id: str, status: str, error_message: Optional[str] = None):
         """Update a task's status and optionally its error message."""

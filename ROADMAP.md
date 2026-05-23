@@ -122,3 +122,9 @@ See **[memory/subtitle_sync.md](memory/subtitle_sync.md)** for implementation de
 - [ ] **Donor Sync Analysis (`[D]`)**: Success state of sync analysis.
 - [ ] **Output Mode Dialog (`[S]`)**: Selection menu for Overwrite/Local/Remote.
 - [ ] **Keyboard Shortcut Help (`[?]`)**: The full-screen help reference.
+
+---
+
+## 🐛 Known Issues & Bugs
+
+- **Single-File Mode Exit Bug**: Running `trackremux.py <file>` and saving/queuing a task (pressing `S` -> `O`) causes the TUI to exit immediately instead of showing progress or returning to the UI. The task is correctly queued and processed by the worker on the next run, but the UI should remain active.
