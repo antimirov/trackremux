@@ -22,6 +22,9 @@ Import a dubbed audio track from a second file with automatic sync detection bas
 ### Asynchronous Background Queue (v0.12.0)
 Remuxing operations are now fully offloaded to a persistent background worker. Pressing `[S]ave` instantly queues the file without blocking the UI, allowing for continuous library management while processing occurs. Added a dedicated `[V] Queue` view for monitoring task status, progress, and detailed track stats. Main view automatically refreshes metadata as tasks complete.
 
+### Graceful Active Process Shutdown (v0.13.1)
+TUI shuts down active worker threads cleanly on exit or SIGINT/Ctrl+C. Spawns and tracks active ffmpeg PIDs in the background queue, sending `SIGTERM` followed by `SIGKILL` to prevent orphan/zombie processes, and restores active tasks back to pending state seamlessly.
+
 ---
 
 ### Smart Defaults & Profile Editor (v0.7.0)

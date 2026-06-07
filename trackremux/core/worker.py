@@ -35,11 +35,31 @@ class QueueWorker:
         
     def stop(self):
         self._stop_event.set()
-        if self.current_process and self.current_process.poll() is None:
+        p = self.current_process
+        if p and p.poll() is None:
             try:
-                self.current_process.terminate()
-            except:
+                p.terminate()
+            except Exception:
                 pass
+            
+            # Wait up to 1.5 seconds for it to exit gracefully
+            start_time = time.time()
+            while p.poll() is None and (time.time() - start_time) < 1.5:
+                time.sleep(0.05)
+                
+            # If it's still running, send SIGKILL forcefully
+            if p.poll() is None:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+                try:
+                    p.wait(timeout=0.5)
+                except Exception:
+                    pass
+
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=3.0)
         
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
@@ -78,6 +98,8 @@ class QueueWorker:
             self.current_process = MediaConverter.convert(
                 media_file, staging_output, task.convert_audio
             )
+            task.ffmpeg_pid = self.current_process.pid
+            self.qm.save()
             
             estimated_size_mb = MediaConverter.estimate_output_size(media_file, task.convert_audio) / 1024 / 1024
             

@@ -141,7 +141,14 @@ class DonorAligner:
             if overlap < 20:
                 continue
 
-            mae = sum(abs(ref_seg[i] - query_seg[i]) for i in range(overlap)) / overlap
+            r_sub = ref_seg[:overlap]
+            q_sub = query_seg[:overlap]
+
+            # Zero-mean normalization of the overlap segments to handle volume/gain differences
+            mean_r = sum(r_sub) / overlap
+            mean_q = sum(q_sub) / overlap
+
+            mae = sum(abs((r_sub[i] - mean_r) - (q_sub[i] - mean_q)) for i in range(overlap)) / overlap
             if mae < best_mae:
                 best_mae = mae
                 best_offset = shift

@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.1] - 2026-05-25
+
+### Added
+- **Graceful Active Process Shutdown on Quit**: When quitting trackremux via `Q`, `ESC`, or `Ctrl+C`, the TUI now displays a clean "Shutting down active worker thread cleanly..." status screen while the background worker terminates. Any active `ffmpeg` subprocesses spawned during the current session are gracefully shut down with `SIGTERM` (and forcefully killed with `SIGKILL` if they fail to terminate within a 1.5s timeout) to prevent orphan/zombie processes. Active tasks are automatically reverted to `pending` in `queue.json` so they can be resumed cleanly on next launch.
+- **Background PID Tracking**: Added robust logging and active tracking of `ffmpeg_pid` in the persistent `queue.json` file. The PID is saved immediately upon launching a conversion task and cleared cleanly upon completion or abort, enabling precise startup cleanup of orphan processes.
+- **Detailed Failed Jobs List in Startup Prompt**: Enhanced the startup prompt for failed jobs to list the filenames of the first five failed tasks, providing visual clarity on what will be re-queued.
+- **Shutdown Status Screen**: Added a clear visual indicator screen when exiting the application with active conversions, showing that the background worker is shutting down cleanly.
+
+### Fixed
+- **Queue Manager Thread-Safety Race Condition**: Fixed a race condition where the TUI thread drawing frames called `load()` concurrently with the background worker thread mutating task statuses and writing updates to disk. This could cause the loaded stale task status to overwrite the memory state before the worker completed a write, reverting completed tasks back to `"running"` status (e.g. leaving successfully completed tasks stuck in the UI). Added a reentrant lock (`threading.RLock`) to `QueueManager` to synchronize all disk and memory state modifications.
+- **Donor Sync False-Positive on Volume-Mismatched Tracks**: `DonorAligner._sliding_mae()` was computing absolute loudness differences between the reference and donor envelopes. When the two tracks had significantly different average volume levels (e.g. a heavily compressed Russian dub vs. a dynamic French original, ~18 dB apart), the raw MAE stayed artificially high (~15 dB) across every shift position, making every candidate look equally terrible and causing the algorithm to return a random low-confidence offset (often 14–18 seconds). The comparison now applies **zero-mean normalization** to each overlapping segment before computing the MAE, so the matching operates on the *shape* of the loudness envelope rather than absolute levels. This yields correct sub-frame offsets (≈ 0.0 s) with high confidence (≥ 80%) in cases that previously failed completely.
+
 ## [0.13.0] - 2026-05-23
 
 ### Added

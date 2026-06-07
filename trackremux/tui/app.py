@@ -88,8 +88,20 @@ class TrackRemuxApp:
                 self.stdscr.erase()
                 height, width = self.stdscr.getmaxyx()
                 
+                files_list = []
+                for t in failed_tasks[:5]:
+                    fn = t.media_file_dict.get('filename') or os.path.basename(t.media_file_dict.get('path', ''))
+                    # Elide middle of filename if it's exceptionally long
+                    if len(fn) > 60:
+                        fn = fn[:30] + "..." + fn[-27:]
+                    files_list.append(f"    • {fn}")
+                if len(failed_tasks) > 5:
+                    files_list.append(f"    • ... and {len(failed_tasks) - 5} more")
+
                 lines = [
-                    f"  There are {len(failed_tasks)} failed jobs from previous runs.",
+                    f"  There are {len(failed_tasks)} failed jobs from previous runs:",
+                    "",
+                ] + files_list + [
                     "",
                     "  Do you want to re-queue them as pending",
                     "  to try running them again?",
@@ -172,6 +184,15 @@ class TrackRemuxApp:
             
             # Stop worker
             if hasattr(self, "queue_worker"):
+                try:
+                    if self.queue_worker.is_running() and self.queue_worker.current_task:
+                        self.stdscr.erase()
+                        h, w = self.stdscr.getmaxyx()
+                        msg = "Shutting down active worker thread cleanly..."
+                        self.stdscr.addstr(h // 2, max(0, (w - len(msg)) // 2), msg, curses.color_pair(3) | curses.A_BOLD)
+                        self.stdscr.refresh()
+                except Exception:
+                    pass
                 self.queue_worker.stop()
                 
             # Stop scanner
