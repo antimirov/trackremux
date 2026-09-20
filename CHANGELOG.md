@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.2] - 2026-09-20
+
+### Added
+- **Lossless FLAC Audio Transcoding**: Added `flac` to the high-definition audio conditioning set (`HD_CODECS`). Enabling the `'C'` toggle in the editor or CLI will now transcode high-bitrate lossless FLAC audio streams into compatible AC3 tracks (192 kbps for stereo, 640 kbps for 5.1/surround), significantly reducing media file sizes without requiring manual command lines.
+- **Accurate FLAC Size Savings Estimation**: Updated `estimate_output_size()` to accurately model lossless FLAC source bitrates (~350 kbps per channel), correctly reflecting space savings in the TUI progress and preview views.
+- **FLAC HD Badge & Title Cleanup**: The Media Browser now displays a `FLAC` badge in the HD audio indicators, and track title metadata rewrites automatically reflect new codec labels when transcoding FLAC, TrueHD, PCM, or DTS streams.
+
 ## [0.13.1] - 2026-05-25
 
 ### Added

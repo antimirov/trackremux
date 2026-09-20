@@ -955,7 +955,7 @@ class TrackEditor:
             self._on_save_pressed()
         elif key in (KEY_C_LOWER, KEY_C_UPPER):
             self.app.settings.convert_audio = not self.app.settings.convert_audio
-            tag = "HD Audio Conditioning (THD/DTS → EAC3/AC3)" if self.app.settings.convert_audio else "Copy (no transcode)"
+            tag = "HD/Lossless Audio Conditioning (FLAC/THD/DTS → EAC3/AC3)" if self.app.settings.convert_audio else "Copy (no transcode)"
             self.status_message = f" Audio conditioning: {tag} "
         elif key in (KEY_P_LOWER, KEY_P_UPPER):
             MediaPreview.stop()

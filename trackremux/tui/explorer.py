@@ -633,6 +633,9 @@ class FileExplorer:
                         elif c_name in ("dts", "dts-hd"):
                             if highest_hd_audio not in ("THD", "PCM"):
                                 highest_hd_audio = "DTS"
+                        elif c_name == "flac":
+                            if highest_hd_audio not in ("THD", "PCM", "DTS"):
+                                highest_hd_audio = "FLAC"
 
                 has_dts = highest_hd_audio is not None
 

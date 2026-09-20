@@ -7,7 +7,7 @@ from .models import MediaFile
 
 class MediaConverter:
     # Codec set of high-res audio variants that we transcode when convert_audio is on
-    HD_CODECS = {"dts", "dts-hd", "truehd", "pcm_bluray", "pcm_s16le", "pcm_s24le", "pcm_s32le"}
+    HD_CODECS = {"dts", "dts-hd", "truehd", "flac", "pcm_bluray", "pcm_s16le", "pcm_s24le", "pcm_s32le"}
 
     # Channel-layout name → channel count
     LAYOUT_CHANNELS = {
@@ -152,20 +152,10 @@ class MediaConverter:
                             names = {"jpn": "Japanese", "rus": "Russian", "eng": "English"}
                             title = names.get(track.language, lang_label)
 
-                # Handling DTS to AC3 conversion metadata
+                # Handling HD/Lossless audio transcoding metadata
                 if convert_audio and track.codec_name.lower() in MediaConverter.HD_CODECS:
                     dts_audio_indices.append((audio_idx, track))
-
-                    # Rewrite the title if it contains DTS
-                    if title:
-                        # Replace 'DTS' / 'DTS-HD' with 'AC3'
-                        new_title = re.sub(r"(?i)\bdts(?:-hd)?\b", "AC3", title)
-                        # Replace typical bitrates like '1536 kbps' or '768 kbps' with '640 kbps'
-                        new_title = re.sub(
-                            r"\b(?:1536|768)\s*kbps\b", "640 kbps", new_title, flags=re.IGNORECASE
-                        )
-
-                        cmd.extend([f"-metadata:s:a:{audio_idx}", f"title={new_title}"])
+                    # Title rewrite is handled below after selecting the exact attempt from fallback chain
 
                 elif title:
                     # Pass through original or synced title
@@ -221,7 +211,8 @@ class MediaConverter:
             # Rewrite track title to reflect new codec
             title = track.tags.get("title", "")
             if title:
-                new_title = re.sub(r"(?i)\bdts(?:-hd(?:\s*ma)?)?\b", attempt["label"], title)
+                # Replace original codec name if present in title
+                new_title = re.sub(r"(?i)\b(?:dts(?:-hd(?:\s*ma)?)?|flac|truehd|pcm)\b", attempt["label"], title)
                 new_title = re.sub(
                     r"\b(?:1536|768)\s*kbps\b", f"{bitrate or ''}", new_title, flags=re.IGNORECASE
                 )
@@ -264,10 +255,20 @@ class MediaConverter:
                 target_bitrate = int(target_bitrate_str.replace("k", "000"))
                 
                 # If we don't know the original bitrate, we can't accurately subtract it.
-                # MKV often strips audio bitrates. A typical DTS-HD MA is ~3000-4000k. standard DTS is 1536k.
                 orig_bitrate = track.bit_rate
                 if not orig_bitrate:
-                    orig_bitrate = 3500000 if track.is_dts_hd_ma else 1536000
+                    c_name = track.codec_name.lower()
+                    ch = track.channels or 2
+                    if c_name == "flac":
+                        orig_bitrate = 350000 * ch
+                    elif c_name == "truehd":
+                        orig_bitrate = 3000000 if ch <= 6 else 5000000
+                    elif "pcm" in c_name:
+                        orig_bitrate = 768000 * ch
+                    elif track.is_dts_hd_ma:
+                        orig_bitrate = 3500000
+                    else:
+                        orig_bitrate = 1536000
                 
                 size_diff -= int((orig_bitrate * media_file.duration) / 8)
                 size_diff += int((target_bitrate * media_file.duration) / 8)
