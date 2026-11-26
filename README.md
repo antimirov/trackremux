@@ -195,6 +195,20 @@ See [ROADMAP.md](ROADMAP.md) for the full feature roadmap. Highlights:
 - 🏥 **Library Health Checks** — Detect corrupted bitstreams across large libraries
 - 🧊 **Dry Run / Export** — Generate `.sh` scripts for remote NAS execution
 
+## 🚀 CI/CD & Releases
+
+Releases are automated via GitHub Actions using `uv`:
+
+- **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): Runs on pushes and pull requests to `main`, verifying compilation (`compileall`), CLI startup, `uv build`, and isolated wheel installation.
+- **Release** ([`.github/workflows/release.yml`](.github/workflows/release.yml)): Triggers on `v*` tag pushes (or manual `workflow_dispatch`), verifies that the tag matches `pyproject.toml`, builds the wheel and sdist with `uv build`, publishes to PyPI with `uv publish` (using `UV_PUBLISH_USERNAME` and `UV_PUBLISH_PASSWORD` repository secrets), and creates/updates the GitHub Release with `CHANGELOG.md` notes and `dist/*` artifacts.
+
+To cut a new release:
+1. Bump `version` in `pyproject.toml`, run `uv lock`, and add the release section to `CHANGELOG.md`.
+2. Commit the changes, tag the release, and push:
+   ```bash
+   git tag vX.Y.Z && git push origin main vX.Y.Z
+   ```
+
 ## 📝 License
 
 MIT License. See [LICENSE](LICENSE) for more details.
