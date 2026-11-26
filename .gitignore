@@ -6,6 +6,12 @@ __pycache__*
 .mypy_cache
 *.egg-info
 build/*
+dist/
+
+# Secrets / environment
+.env
+.env.*
+**/.env
 
 # local data
 *.log

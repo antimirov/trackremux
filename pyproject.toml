@@ -1,6 +1,6 @@
 [project]
 name = "trackremux"
-version = "0.13.3"
+version = "0.13.4"
 description = "A powerful TUI tool to interactively select and remux audio/subtitle tracks from video files"
 authors = [{ name = "Yevgen Antymyrov", email = "me@antimirov.net" }]
 readme = "README.md"
@@ -28,7 +28,7 @@ include = ["trackremux*"]
 
 [dependency-groups]
 dev = [
-    "black>=24.0.0",
+    "black>=26.10.1",
     "isort>=5.13.0",
     "mypy>=1.8.0",
     "flake8>=7.0.0",

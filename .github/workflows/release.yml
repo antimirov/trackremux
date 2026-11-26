@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Verify version metadata
+        id: version
+        shell: bash
+        run: |
+          PKG_VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          echo "pkg_version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG_VERSION="${GITHUB_REF_NAME#v}"
+            if [[ "$TAG_VERSION" != "$PKG_VERSION" ]]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} does not match pyproject.toml version ${PKG_VERSION}"
+              exit 1
+            fi
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v${PKG_VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        run: uv sync --no-dev
+
+      - name: Compile and smoke check
+        run: |
+          uv run python -m compileall -q trackremux
+          uv run trackremux --version
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Verify built wheel
+        run: uv run --no-project --isolated --with dist/*.whl trackremux --version
+
+      - name: Publish to PyPI
+        env:
+          UV_PUBLISH_USERNAME: ${{ secrets.UV_PUBLISH_USERNAME }}
+          UV_PUBLISH_PASSWORD: ${{ secrets.UV_PUBLISH_PASSWORD }}
+        run: uv publish --check-url https://pypi.org/simple
+
+      - name: Extract changelog notes
+        id: notes
+        shell: bash
+        run: |
+          python3 - "${{ steps.version.outputs.pkg_version }}" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          ver = sys.argv[1]
+          changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          pattern = re.compile(
+              rf"^## \[{re.escape(ver)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
+              re.MULTILINE | re.DOTALL,
+          )
+          m = pattern.search(changelog)
+          notes = m.group(1).strip() if m else f"Release v{ver}"
+          Path("/tmp/release_notes.md").write_text(notes + "\n", encoding="utf-8")
+          PY
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --title "TrackRemux $TAG" \
+              --notes-file /tmp/release_notes.md
+          fi

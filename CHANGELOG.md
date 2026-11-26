@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.4] - 2026-11-26
+
+### Added
+- **Automated CI/CD & PyPI Release Workflows**: Added GitHub Actions workflows ([ci.yml](.github/workflows/ci.yml) and [release.yml](.github/workflows/release.yml)) using `uv` to verify builds, publish distributions to PyPI (`uv build` + `uv publish`) on `v*` tag pushes, and create GitHub Releases with changelog notes and attached wheel/sdist artifacts.
+
+### Security
+- **Dependabot Alert #2 (`black`)**: Upgraded the `black` dev dependency to `>=26.10.1` in `pyproject.toml` and `uv.lock` to remediate `GHSA-cg8m-r9f2-5wm2` (`CVE-2026-114134`).
+- **Secret & Artifact Hygiene**: Ignored `.env`, `.env.*`, and `dist/` in `.gitignore`.
+
 ## [0.13.3] - 2026-11-26
 
 ### Fixed
