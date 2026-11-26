@@ -34,6 +34,8 @@ from .constants import (
     KEY_S_LOWER,
     KEY_S_UPPER,
     KEY_SPACE,
+    KEY_V_LOWER,
+    KEY_V_UPPER,
     PREVIEW_DURATION_SECONDS,
     SEEK_STEP_SECONDS,
     TRACK_EDITOR_INFO_HEIGHT,
@@ -60,6 +62,7 @@ class TrackEditor:
         self.scroll_idx = 0
         self.status_message = ""
         self.confirming_exit = False
+        self.confirming_quit = False
         self.current_preview_time = 0.0
         self.previewing_subs = False
         self.preview_lines = []
@@ -431,6 +434,27 @@ class TrackEditor:
         self.initial_state = [(t.index, t.enabled) for t in self.media_file.tracks]
         self.confirming_exit = False
 
+    def _active_owned_tasks(self):
+        """Return active queue tasks owned by this process."""
+        if not hasattr(self.app, "queue_manager"):
+            return []
+        my_pid = os.getpid()
+        return [
+            t
+            for t in self.app.queue_manager.get_tasks()
+            if t.status in ("pending", "running") and t.owner_pid == my_pid
+        ]
+
+    def _exit_or_confirm_quit(self):
+        """Return to back_view, or prompt before quitting if background tasks are active."""
+        if self.back_view:
+            self.app.switch_view(self.back_view)
+            return
+        if self._active_owned_tasks():
+            self.confirming_quit = True
+            return
+        self.app.switch_view(None)
+
     def draw(self):
         self.app.stdscr.erase()
         height, width = self.app.stdscr.getmaxyx()
@@ -590,16 +614,17 @@ class TrackEditor:
         # Footer
         mouse_status = "APP" if self.app.mouse_enabled else "TERM"
         audio_tag = "DTS>AC3:On" if self.app.settings.convert_audio else "DTS>AC3:Off"
+        quit_label = "Back" if self.back_view else "Quit"
 
         if width < 110:
             footer = (
                 f" [SPC] Tgl | [ENT] Play | [L] Lang | [S+↑/↓] Move"
-                f" | [C] {audio_tag} | [D] Donor | [S] Save | [P] Prof | [M] {mouse_status} | [Q] Back "
+                f" | [C] {audio_tag} | [D] Donor | [S] Save | [P] Prof | [M] {mouse_status} | [Q] {quit_label} "
             )
         else:
             footer = (
                 f" [SPACE] Toggle | [ENTER] Play | [L] Lang | [Shift+↑/↓] Reorder"
-                f" | [C] {audio_tag} | [D] Donor | [?] Help | [S] Save | [P] Profile | [M] Mouse:{mouse_status} | [Q/ESC] Back "
+                f" | [C] {audio_tag} | [D] Donor | [?] Help | [S] Save | [P] Profile | [M] Mouse:{mouse_status} | [Q/ESC] {quit_label} "
             )
 
         self.app.stdscr.addstr(
@@ -642,6 +667,22 @@ class TrackEditor:
 
             opts = " [S]ave & Start   [Y] Save & Back   [N] Discard "
             self.app.stdscr.addstr(my + 4, mx + (mw - len(opts)) // 2, opts, curses.color_pair(5))
+
+        # Active Background Tasks Quit Confirmation Overlay
+        if self.confirming_quit:
+            count = len(self._active_owned_tasks())
+            msg1 = f" You have {count} active task(s) in the background queue. "
+            msg2 = " Quitting will pause them. Resume next time? "
+            msg3 = " [Y] Quit / [N] Cancel "
+            mw = max(len(msg1), len(msg2), len(msg3)) + 4
+            mh = 5
+            my = height // 2 - mh // 2
+            mx = width // 2 - mw // 2
+            for r in range(mh):
+                self.app.stdscr.addstr(my + r, mx, " " * mw, curses.color_pair(3))
+            self.app.stdscr.addstr(my + 1, mx + (mw - len(msg1)) // 2, msg1, curses.color_pair(3) | curses.A_BOLD)
+            self.app.stdscr.addstr(my + 2, mx + (mw - len(msg2)) // 2, msg2, curses.color_pair(3))
+            self.app.stdscr.addstr(my + 3, mx + (mw - len(msg3)) // 2, msg3, curses.color_pair(3) | curses.A_BOLD)
 
         self.app.stdscr.refresh()
 
@@ -726,6 +767,15 @@ class TrackEditor:
             self._handle_donor_overlay(key)
             return
 
+        if self.confirming_quit:
+            if key in (ord("y"), ord("Y"), KEY_ENTER):
+                MediaPreview.stop()
+                self.confirming_quit = False
+                self.app.switch_view(None)
+            elif key in (ord("n"), ord("N"), KEY_Q_LOWER, KEY_Q_UPPER, KEY_ESC, KEY_CTRL_C):
+                self.confirming_quit = False
+            return
+
         if self.confirming_exit:
             if key in (ord("s"), ord("S")):
                 # Start conversion — show output mode dialog if not yet chosen
@@ -736,7 +786,7 @@ class TrackEditor:
                 # Just save and go back
                 MediaPreview.stop()
                 self.commit_changes()
-                self.app.switch_view(self.back_view)
+                self._exit_or_confirm_quit()
             elif key in (ord("n"), ord("N")):
                 # Restore initial state and go back
                 MediaPreview.stop()
@@ -752,7 +802,7 @@ class TrackEditor:
 
                 self.media_file.tracks = restored_tracks
                 self.confirming_exit = False
-                self.app.switch_view(self.back_view)
+                self._exit_or_confirm_quit()
             elif key in (ord("c"), ord("C"), KEY_ESC):
                 self.confirming_exit = False
 
@@ -770,23 +820,14 @@ class TrackEditor:
                         rel_x = mx - opt_start
 
                         if 1 <= rel_x <= 15:  # [S]ave & Start
-                            self.status_message = " Commencing conversion... "
                             MediaPreview.stop()
-                            self.commit_changes()
-                            self.commit_changes()
-                            if self.batch_group:
-                                self.app.switch_view(
-                                    BatchProgressView(
-                                        self.app, self.batch_group, self.media_file, self
-                                    )
-                                )
-                            else:
-                                self.app.switch_view(ProgressView(self.app, self.media_file, self))
+                            self.confirming_exit = False
+                            self._on_save_pressed()
                         elif 18 <= rel_x <= 32:  # [Y] Save & Back
                             self.status_message = " Saving selection... "
                             MediaPreview.stop()
                             self.commit_changes()
-                            self.app.switch_view(self.back_view)
+                            self._exit_or_confirm_quit()
                         elif 35 <= rel_x <= 45:  # [N] Discard
                             self.status_message = " Discarding changes... "
                             MediaPreview.stop()
@@ -800,7 +841,7 @@ class TrackEditor:
                             self.media_file.tracks = restored_tracks
 
                             self.confirming_exit = False
-                            self.app.switch_view(self.back_view)
+                            self._exit_or_confirm_quit()
                 except Exception:
                     pass
             return
@@ -809,14 +850,8 @@ class TrackEditor:
             if self._has_changes():
                 self.confirming_exit = True
             else:
-                if self.app.mouse_enabled:
-                    # Logic should be in toggle_mouse but we want it off on exit
-                    pass
                 MediaPreview.stop()
-                if self.back_view:
-                    self.app.switch_view(self.back_view)
-                else:
-                    self.app.switch_view(None)
+                self._exit_or_confirm_quit()
         elif key in (KEY_M_LOWER, KEY_M_UPPER):
             self.app.toggle_mouse()
         elif key == curses.KEY_MOUSE:
@@ -1000,6 +1035,11 @@ class TrackEditor:
                 self.status_message = " Profile applied. "
             else:
                 self.status_message = " No profile to apply. "
+        # [V] Queue view
+        elif key in (KEY_V_LOWER, KEY_V_UPPER):
+            MediaPreview.stop()
+            from .queue_view import QueueView
+            self.app.switch_view(QueueView(self.app, back_view=self))
         # [D] Donor picker
         elif key in (ord("d"), ord("D")):
             MediaPreview.stop()
@@ -1088,9 +1128,14 @@ class TrackEditor:
         # Auto-start worker if it's not running
         if hasattr(self.app, "queue_worker") and not self.app.queue_worker.is_running():
             self.app.queue_worker.start()
-            
-        # Clear state and drop back to explorer
-        self.app.switch_view(self.back_view)
+
+        if self.back_view:
+            # Clear state and drop back to explorer
+            self.app.switch_view(self.back_view)
+        else:
+            # Single-file mode: open QueueView instead of exiting the app
+            from .queue_view import QueueView
+            self.app.switch_view(QueueView(self.app, back_view=self))
 
     def _draw_output_dialog(self, height, width):
         """Draw the output-mode selection overlay with contextual output preview."""
@@ -1173,7 +1218,8 @@ class TrackEditor:
             base_name = os.path.splitext(self.media_file.filename)[0]
 
             # Single-file residuals
-            local_out = os.path.join(self.app.start_path, "converted_" + self.media_file.filename)
+            local_dir = self.app.start_path if os.path.isdir(self.app.start_path) else os.getcwd()
+            local_out = os.path.join(local_dir, "converted_" + self.media_file.filename)
             remote_out = os.path.join(source_dir, "converted_" + self.media_file.filename)
             # Batch directory residuals
             batch_local = os.path.join(os.getcwd(), f"converted_{dir_name}", f"{base_name}.mkv")

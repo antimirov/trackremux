@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.3] - 2026-11-26
+
+### Fixed
+- **Single-File Save & Exit Bug**: Fixed a bug where launching `trackremux <file>` directly and starting a conversion (`[S]` → Overwrite/Local/Remote) switched `TrackEditor` to `back_view=None`, immediately terminating the application and stopping the background worker before the task could run. Single-file launches now transition into `QueueView` to monitor the active conversion.
+- **Single-File Active Task Quit Guard**: Added a quit confirmation dialog to `TrackEditor` when launched in single-file mode (`back_view=None`), preventing accidental `Q`/`ESC`/`Ctrl+C` exits while background queue tasks are active. Also added `[V]` in `TrackEditor` to open `QueueView` directly.
+- **Residual Local Output Path Check**: Fixed `_handle_output_dialog()` in `TrackEditor` using `self.app.start_path` (which is a file path in single-file mode) instead of the current working directory when checking for residual `converted_*` files.
+
 ## [0.13.2] - 2026-09-20
 
 ### Added
